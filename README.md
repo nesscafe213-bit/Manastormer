@@ -2,21 +2,33 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.9**  
+Current release: **v2.8.10**  
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.9.zip`.
+2. Download `Manastormer-2.8.10.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
+
+### One-command updater
+
+Keep `Install-Manastormer.ps1` and run it whenever a new version is released:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Manastormer.ps1
+```
+
+It downloads the latest GitHub release, detects Ascension's AddOns folder,
+backs up the existing addon, installs the update and verifies the version.
 
 ## Highlights
 
 - Flexible raid-size, Tank, Healer and Aura requirements.
 - Recruitment whispers and a public LFG chat scanner with individual Invite buttons.
+- Aura recruitment whispers use an animated gold sparkling border for instant visibility.
 - Automatic capacity replies when a whispered Tank, Healer, DPS or Aura role is already full, with per-player spam protection.
 - Automatically suspends recruitment and automation for Dungeon Finder queues/groups and inside non-Manastorm instances, then resumes afterward.
 - Automatic role detection from replies including Tank/Aura and Healer/Aura combinations.

@@ -1571,6 +1571,19 @@ function Sync.ClearAllSignups()
     db.signups = {}
 end
 
+function Sync.SendFarewellWhisper(name, level)
+    if not name or IsSelf(name) or type(SendChatMessage) ~= "function" then return end
+    SendChatMessage(
+        "Thanks for joining our Manastorm group, and good luck with your roles! "
+            .. "You were removed at level " .. tostring(level)
+            .. " to protect the group scaling. Download Manastormer: "
+            .. "https://github.com/nesscafe213-bit/Manastormer",
+        "WHISPER",
+        nil,
+        name
+    )
+end
+
 local function ToggleManualRole(name, role)
     if not name or not role then
         return
@@ -1700,6 +1713,7 @@ UpdateKickButton = function()
         kick60Button:Enable()
         kick60Button:SetAttribute("type", "macro")
         kick60Button:SetAttribute("macrotext", "/uninvite " .. kickName)
+        kick60Button.targetName = kickName
     end
     PositionKickButton()
     kick60Button:Show()
@@ -1730,6 +1744,7 @@ UpdateKick59Button = function()
     kick59Button:Enable()
     kick59Button:SetAttribute("type", "macro")
     kick59Button:SetAttribute("macrotext", "/uninvite " .. kickName)
+    kick59Button.targetName = kickName
     PositionKickButton()
     kick59Button:Show()
 end
@@ -3008,7 +3023,7 @@ function Sync.CreateChatScannerPanel(parent)
     chatScannerPanel:SetBackdropColor(0.015, 0.045, 0.085, 0.98)
     chatScannerPanel:SetBackdropBorderColor(0.10, 0.55, 0.82, 1)
     chatScannerPanel:SetScript("OnDragStart", chatScannerPanel.StartMoving)
-    chatScannerPanel:SetScript("OnDragStop", FinishChatScannerMove)
+    chatScannerPanel:SetScript("OnDragStop", Sync.FinishChatScannerMove)
     chatScannerPanel:SetScript("OnMouseWheel", function(_, delta)
         Sync.ScrollChatScanner(delta > 0 and -1 or 1)
     end)
@@ -3035,7 +3050,7 @@ function Sync.CreateChatScannerPanel(parent)
     local headings = {
         { text = "PLAYER", x = 20 },
         { text = "PUBLIC POST", x = 125 },
-        { text = "ROLE", x = 360 },
+        { text = "ROLE", x = 345, width = 98, centered = true },
         { text = "ACTION", x = 465 },
     }
     local _, heading
@@ -3044,6 +3059,8 @@ function Sync.CreateChatScannerPanel(parent)
         label:SetFont(FONT_BODY, 9, "")
         label:SetTextColor(0.35, 0.82, 1, 1)
         label:SetPoint("TOPLEFT", heading.x, -72)
+        if heading.width then label:SetWidth(heading.width) end
+        if heading.centered then label:SetJustifyH("CENTER") end
         label:SetText(heading.text)
     end
 
@@ -3217,7 +3234,7 @@ function Sync.CreateWhisperPanel()
     local headings = {
         { text = "PLAYER", x = 20 },
         { text = "MESSAGE", x = 135 },
-        { text = "ROLE", x = 430 },
+        { text = "ROLE", x = 425, width = 105, centered = true },
         { text = "ACTION", x = 535 },
     }
     local _, heading
@@ -3226,6 +3243,8 @@ function Sync.CreateWhisperPanel()
         label:SetFont(FONT_BODY, 9, "")
         label:SetTextColor(unpack(UI_COLORS.gold))
         label:SetPoint("TOPLEFT", heading.x, -72)
+        if heading.width then label:SetWidth(heading.width) end
+        if heading.centered then label:SetJustifyH("CENTER") end
         label:SetText(heading.text)
     end
 
@@ -3698,7 +3717,7 @@ function Sync.CreateMinimapButton()
 
     minimapButton:SetScript("OnDragStart", function(self)
         self.wasDragged = true
-        self:SetScript("OnUpdate", UpdateMinimapDrag)
+        self:SetScript("OnUpdate", Sync.UpdateMinimapDrag)
     end)
     minimapButton:SetScript("OnDragStop", function(self)
         self:SetScript("OnUpdate", nil)
@@ -4018,7 +4037,11 @@ function Sync.CreatePanel()
         "Ascension can protect raid removal from automatic addon actions. Click this fallback immediately if the automatic kick did not complete."
     )
     kick60Button:SetText("KICK LEVEL 60")
-    kick60Button:SetScript("PostClick", function()
+    kick60Button:SetScript("PostClick", function(self)
+        local removedName = self.targetName
+        Schedule(0.1, function()
+            Sync.SendFarewellWhisper(removedName, 60)
+        end)
         Schedule(1, function()
             UpdateRosterDepartures()
             UpdateKickButton()
@@ -4037,7 +4060,11 @@ function Sync.CreatePanel()
         "Removes the displayed live level-59 player from the group. The button rechecks the current roster level before it appears."
     )
     kick59Button:SetText("KICK LEVEL 59")
-    kick59Button:SetScript("PostClick", function()
+    kick59Button:SetScript("PostClick", function(self)
+        local removedName = self.targetName
+        Schedule(0.1, function()
+            Sync.SendFarewellWhisper(removedName, 59)
+        end)
         Schedule(1, function()
             UpdateRosterDepartures()
             UpdateKickButton()

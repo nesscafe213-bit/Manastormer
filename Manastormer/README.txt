@@ -1,4 +1,4 @@
-MANASTORMER 2.8.7
+MANASTORMER 2.8.8
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -38,6 +38,11 @@ MAIN FEATURES
 - Opens a live recruitment whisper panel from the WHISPERS button.
 - Ignores unrelated whispers and only keeps role/Aura replies or requests asking
   whether the group has room.
+- While role listening is active, leader/assist automatically whispers recruits
+  when their offered Tank, Healer, DPS or Aura role is already full. Combination
+  replies identify both the full role and any offered role still needed.
+- Identical capacity replies to the same player are limited to once per two
+  minutes, with a minimum 30-second gap if raid needs change.
 - While the recruitment window is open, watches every chat channel for posts
   containing LFG + MS + Tank, Healer, DPS or Aura; LFM posts are ignored.
 - Displays public-channel matches in a separate cyan Chat Scanner panel attached

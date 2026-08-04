@@ -1,4 +1,4 @@
-MANASTORMER 2.8.16
+MANASTORMER 2.8.18
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,13 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Clicking either secure level-59 or level-60 kick button whispers that player
+  a thank-you, wishes them good luck with their roles, explains the scaling
+  removal and includes the Manastormer GitHub download link.
+- Centres the ROLE headings over the complete role-icon cells in both the
+  Recruitment Whispers and Chat Scanner panels.
+- Fixes the scanner drag-stop and minimap drag callbacks after the 2.8.16
+  local-variable compatibility refactor.
 - Load hotfix: consolidates internal helpers so Ascension's legacy Lua engine
   stays safely below its 200-local-variable limit. This restores the GUI,
   minimap button and /msm commands after the broken 2.8.15 build.

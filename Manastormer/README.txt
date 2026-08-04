@@ -1,4 +1,4 @@
-MANASTORMER 2.8.12
+MANASTORMER 2.8.13
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,9 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Fully closing the main GUI now puts Manastormer to sleep: recruitment,
+  role capture, capacity replies, level actions, markers, alerts and entry/
+  ready state are ignored until the main GUI is reopened. Compact view stays active.
 - Restores a secure, user-click ENTER MANASTORM 1 button that activates
   Ascension's native entry control without unsafe automatic protected calls.
 - Live level-60 actions require the current roster unit to actually be level

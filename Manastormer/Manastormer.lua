@@ -85,6 +85,7 @@ local newerVersionAvailable
 local warnedVersion
 local lastVersionBroadcast = 0
 local whisperCapacityReplies = {}
+local lastActivityAllowed
 
 local function Trim(text)
     return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -212,6 +213,19 @@ end
 
 local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage("|cffe8c96aManastormer:|r " .. tostring(message))
+end
+
+local function UpdateActivityState(announce)
+    local allowed = ManastormAutomationAllowed()
+    if announce and lastActivityAllowed ~= nil and allowed ~= lastActivityAllowed then
+        if allowed then
+            Print("Automatic Manastorm features resumed.")
+        else
+            Print("Automatic features suspended inside this non-Manastorm instance.")
+        end
+    end
+    lastActivityAllowed = allowed
+    return allowed
 end
 
 local function Schedule(delay, callback)
@@ -1047,7 +1061,7 @@ local function MaybeReplyRoleCapacity(author, roles)
     if not author or not roles or IsSelf(author) or IsGrouped(author) then
         return
     end
-    if not sessionActive or not HasAutomationAuthority() then
+    if not sessionActive or not HasAutomationAuthority() or not ManastormAutomationAllowed() then
         return
     end
 
@@ -1575,9 +1589,12 @@ Refresh = function()
     end
 
     local hasAuthority = HasAutomationAuthority()
+    local activityAllowed = ManastormAutomationAllowed()
     local state
     if not hasAuthority then
         state = "|cffaaaaaaSILENT (NOT LEAD/ASSIST)|r"
+    elseif sessionActive and not activityAllowed then
+        state = "|cffffcc55SUSPENDED (NOT MANASTORM)|r"
     else
         state = sessionActive and "|cff55ff66LISTENING|r" or "|cffaaaaaaPAUSED|r"
     end
@@ -3281,7 +3298,7 @@ local function CreatePanel()
             Print("Signup listening paused.")
         end
         Refresh()
-    end, "Listen for Roles", "Starts or pauses automatic role detection from chat. While listening, leader/assist also replies when a whispered role is already full. Understands role numbers and phrases such as 'healer aura'.", "blue")
+    end, "Listen for Roles", "Starts or pauses automatic role detection from chat. Manastormer automatically suspends whispers, chat scanning and automation inside normal, heroic, mythic and raid instances, then resumes after you leave. While listening, leader/assist also replies when a whispered role is already full.", "blue")
     listenButton:SetPoint("TOPLEFT", 10, -149)
 
     local askButton = MakeButton(panel, "ROLE CHECK /RW", 120, function()
@@ -3500,12 +3517,13 @@ addon:SetScript("OnEvent", function(self, event, ...)
     elseif CHAT_EVENTS[event] then
         local message, author, _, channelName = ...
         local roles = event == "CHAT_MSG_WHISPER" and ParseWhisperRoles(message) or ParseRoles(message)
-        if event == "CHAT_MSG_WHISPER" and author then
+        local activityAllowed = ManastormAutomationAllowed()
+        if event == "CHAT_MSG_WHISPER" and author and activityAllowed then
             local captured = CaptureWhisper(author, message, roles, "Whisper")
             if captured then
                 MaybeReplyRoleCapacity(author, roles)
             end
-        elseif whisperPanel and whisperPanel:IsShown() and author then
+        elseif activityAllowed and whisperPanel and whisperPanel:IsShown() and author then
             local recruitmentRoles = ParseWhisperRoles(message)
             if IsLFGManastormPost(message, recruitmentRoles) then
                 CaptureChatScan(author, message, recruitmentRoles, ChatSource(event, channelName))
@@ -3541,7 +3559,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
             RefreshChatScannerPanel()
         end)
         Schedule(1, function() BroadcastVersion(false) end)
-    elseif event == "PLAYER_ENTERING_WORLD" then
+    elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         activeManastormLevel = 0
         local inInstance = type(IsInInstance) == "function" and IsInInstance()
         if inInstance and not InstanceNameIsManastorm() then
@@ -3549,6 +3567,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
             UpdateKickButton()
         end
         Schedule(1, function()
+            UpdateActivityState(true)
             UpdateRosterDepartures()
             CheckLevels()
             Refresh()
@@ -3633,6 +3652,7 @@ addon:RegisterEvent("PARTY_MEMBERS_CHANGED")
 addon:RegisterEvent("UNIT_LEVEL")
 addon:RegisterEvent("PLAYER_LEVEL_UP")
 addon:RegisterEvent("PLAYER_ENTERING_WORLD")
+addon:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 addon:RegisterEvent("PLAYER_REGEN_ENABLED")
 addon:RegisterEvent("READY_CHECK_FINISHED")
 addon:RegisterEvent("READY_CHECK_CONFIRM")

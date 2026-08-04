@@ -1,4 +1,4 @@
-MANASTORMER 2.8.11
+MANASTORMER 2.8.12
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,12 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Restores a secure, user-click ENTER MANASTORM 1 button that activates
+  Ascension's native entry control without unsafe automatic protected calls.
+- Live level-60 actions require the current roster unit to actually be level
+  60; cached blocks use exact full names, expire, and clear below level 60.
+- Dungeon Finder suspension now recognises actual LFG party/proposal states
+  without suspending solo players or Manastorm recruitment.
 - Hotfix: Aura sparkle borders are attached to Recruitment Whisper rows and
   refresh safely when older UI rows are present.
 - Aura recruitment whispers have an animated gold sparkling border so priority

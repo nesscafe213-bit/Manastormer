@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.11**  
+Current release: **v2.8.12**  
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.11.zip`.
+2. Download `Manastormer-2.8.12.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -35,6 +35,8 @@ backs up the existing addon, installs the update and verifies the version.
 - Correct handling of replies such as `DPS no aura`, `healer no aura` and `without aura`.
 - Aura coverage warnings when an occupied raid subgroup has no Aura player.
 - Level 59 monitoring and critical level 60 warnings.
+- Level-60 actions are validated against the live roster rather than a cached short name.
+- Secure user-click Manastorm Level 1 entry through Ascension's native control.
 - Ready checks, level-and-role raid reports and Tank raid markers.
 - Chaotic Link stack tracking with a configurable notification interval.
 - Compact combat view and minimap launcher.

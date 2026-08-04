@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.13**  
+Current release: **v2.8.15**
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.13.zip`.
+2. Download `Manastormer-2.8.15.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -26,6 +26,9 @@ backs up the existing addon, installs the update and verifies the version.
 
 ## Highlights
 
+- Role and Aura assignments synchronise between grouped Manastormer users, with the raid leader providing the full shared snapshot.
+- The GUI identifies the detected Manastormer raid leader or shows that you are hosting the sync.
+- The raid leader posts a normal raid-chat reminder every two minutes when an occupied subgroup has no Aura; it never uses Raid Warning.
 - Flexible raid-size, Tank, Healer and Aura requirements.
 - Recruitment whispers and a public LFG chat scanner with individual Invite buttons.
 - Aura recruitment whispers use an animated gold sparkling border for instant visibility.
@@ -34,11 +37,11 @@ backs up the existing addon, installs the update and verifies the version.
 - Automatic role detection from replies including Tank/Aura and Healer/Aura combinations.
 - Correct handling of replies such as `DPS no aura`, `healer no aura` and `without aura`.
 - Aura coverage warnings when an occupied raid subgroup has no Aura player.
-- Level 59 monitoring and critical level 60 warnings.
+- Live-verified level 59 monitoring with a secure user-clicked kick button, plus critical level 60 warnings.
 - Level-60 actions are validated against the live roster rather than a cached short name.
 - Secure user-click Manastorm Level 1 entry through Ascension's native control.
 - Ready checks, level-and-role raid reports and Tank raid markers.
-- Chaotic Link stack tracking with a configurable notification interval.
+- Chaotic Link stack tracking with a configurable notification interval and a reporting on/off checkbox.
 - Compact combat view and minimap launcher.
 - Fully closing the main GUI sleeps all Manastorm recruitment and automation until reopened; compact mode remains active.
 - Quiet version checks between grouped Manastormer users.

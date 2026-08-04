@@ -206,9 +206,24 @@ local function IsInsideManastorm()
     return activeManastormLevel > 0 or InstanceNameIsManastorm()
 end
 
+local function IsDungeonFinderActive()
+    if type(GetLFGMode) ~= "function" then
+        return false
+    end
+    local ok, mode = pcall(GetLFGMode)
+    if not ok then
+        return false
+    end
+    mode = Trim(mode):lower()
+    return mode ~= "" and mode ~= "none"
+end
+
 local function ManastormAutomationAllowed()
     local inInstance = type(IsInInstance) == "function" and IsInInstance()
-    return not inInstance or IsInsideManastorm()
+    if IsInsideManastorm() then
+        return true
+    end
+    return not inInstance and not IsDungeonFinderActive()
 end
 
 local function Print(message)
@@ -221,7 +236,16 @@ local function UpdateActivityState(announce)
         if allowed then
             Print("Automatic Manastorm features resumed.")
         else
-            Print("Automatic features suspended inside this non-Manastorm instance.")
+            Print("Automatic features suspended for Dungeon Finder or a non-Manastorm instance.")
+        end
+    end
+    if not allowed then
+        raidReportQueue = nil
+        readyCheckArmed = false
+        manastormEntryArmed = false
+        pendingLevel60Kicks = {}
+        if UpdateKickButton then
+            UpdateKickButton()
         end
     end
     lastActivityAllowed = allowed
@@ -1594,7 +1618,7 @@ Refresh = function()
     if not hasAuthority then
         state = "|cffaaaaaaSILENT (NOT LEAD/ASSIST)|r"
     elseif sessionActive and not activityAllowed then
-        state = "|cffffcc55SUSPENDED (NOT MANASTORM)|r"
+        state = "|cffffcc55SUSPENDED (DUNGEON GROUP)|r"
     else
         state = sessionActive and "|cff55ff66LISTENING|r" or "|cffaaaaaaPAUSED|r"
     end
@@ -3298,7 +3322,7 @@ local function CreatePanel()
             Print("Signup listening paused.")
         end
         Refresh()
-    end, "Listen for Roles", "Starts or pauses automatic role detection from chat. Manastormer automatically suspends whispers, chat scanning and automation inside normal, heroic, mythic and raid instances, then resumes after you leave. While listening, leader/assist also replies when a whispered role is already full.", "blue")
+    end, "Listen for Roles", "Starts or pauses automatic role detection from chat. Manastormer automatically suspends for Dungeon Finder queues/groups and inside normal, heroic, mythic and raid instances, then resumes afterward. While listening, leader/assist also replies when a whispered role is already full.", "blue")
     listenButton:SetPoint("TOPLEFT", 10, -149)
 
     local askButton = MakeButton(panel, "ROLE CHECK /RW", 120, function()
@@ -3559,6 +3583,18 @@ addon:SetScript("OnEvent", function(self, event, ...)
             RefreshChatScannerPanel()
         end)
         Schedule(1, function() BroadcastVersion(false) end)
+    elseif event == "LFG_UPDATE"
+        or event == "LFG_QUEUE_STATUS_UPDATE"
+        or event == "LFG_ROLE_CHECK_SHOW"
+        or event == "LFG_ROLE_CHECK_HIDE"
+        or event == "LFG_PROPOSAL_SHOW"
+        or event == "LFG_PROPOSAL_SUCCEEDED"
+        or event == "LFG_PROPOSAL_FAILED"
+    then
+        Schedule(0.2, function()
+            UpdateActivityState(true)
+            Refresh()
+        end)
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         activeManastormLevel = 0
         local inInstance = type(IsInInstance) == "function" and IsInInstance()
@@ -3653,6 +3689,13 @@ addon:RegisterEvent("UNIT_LEVEL")
 addon:RegisterEvent("PLAYER_LEVEL_UP")
 addon:RegisterEvent("PLAYER_ENTERING_WORLD")
 addon:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+addon:RegisterEvent("LFG_UPDATE")
+addon:RegisterEvent("LFG_QUEUE_STATUS_UPDATE")
+addon:RegisterEvent("LFG_ROLE_CHECK_SHOW")
+addon:RegisterEvent("LFG_ROLE_CHECK_HIDE")
+addon:RegisterEvent("LFG_PROPOSAL_SHOW")
+addon:RegisterEvent("LFG_PROPOSAL_SUCCEEDED")
+addon:RegisterEvent("LFG_PROPOSAL_FAILED")
 addon:RegisterEvent("PLAYER_REGEN_ENABLED")
 addon:RegisterEvent("READY_CHECK_FINISHED")
 addon:RegisterEvent("READY_CHECK_CONFIRM")

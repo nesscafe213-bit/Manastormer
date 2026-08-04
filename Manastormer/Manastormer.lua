@@ -90,14 +90,14 @@ local warnedVersion
 local lastVersionBroadcast = 0
 local whisperCapacityReplies = {}
 local lastActivityAllowed
-local lastAuraCoverageNotice = 0
-local nextAuraCoverageCheck = 0
-local roleSyncSnapshots = {}
-local lastRoleSyncRequest = 0
-local lastRoleSyncSnapshot = 0
-local addonUsers = {}
-local BroadcastSignup
-local BroadcastSignupDelete
+local Sync = {
+    lastAuraCoverageNotice = 0,
+    nextAuraCoverageCheck = 0,
+    roleSyncSnapshots = {},
+    lastRoleSyncRequest = 0,
+    lastRoleSyncSnapshot = 0,
+    addonUsers = {},
+}
 
 local function Trim(text)
     return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -686,7 +686,7 @@ local function BroadcastVersion(force)
     )
 end
 
-local function SendGroupAddonMessage(message)
+function Sync.SendGroupAddonMessage(message)
     if not IsManastormerAwake()
         or type(SendAddonMessage) ~= "function"
         or (not InRaid() and not InParty())
@@ -781,7 +781,7 @@ local function AuraCoverage()
     return #missingGroups == 0, missingGroups
 end
 
-local function MaybeNotifyMissingAuraGroups()
+function Sync.MaybeNotifyMissingAuraGroups()
     if not IsManastormerAwake()
         or not InRaid()
         or not IsRaidLeader()
@@ -790,12 +790,12 @@ local function MaybeNotifyMissingAuraGroups()
         return
     end
     local now = GetTime()
-    if now < nextAuraCoverageCheck then return end
-    nextAuraCoverageCheck = now + 5
+    if now < Sync.nextAuraCoverageCheck then return end
+    Sync.nextAuraCoverageCheck = now + 5
     local covered, missingGroups = AuraCoverage()
     if covered then return end
-    if now - lastAuraCoverageNotice < 120 then return end
-    lastAuraCoverageNotice = now
+    if now - Sync.lastAuraCoverageNotice < 120 then return end
+    Sync.lastAuraCoverageNotice = now
     SendChatMessage(
         "[Manastormer] No Aura assigned to occupied Group(s): "
             .. table.concat(missingGroups, ", ") .. ".",
@@ -815,7 +815,7 @@ local function FindRaidIndex(name)
 end
 
 
-local function SenderIsGroupLeader(name)
+function Sync.SenderIsGroupLeader(name)
     if not name then return false end
     if InRaid() then
         local index = FindRaidIndex(name)
@@ -836,7 +836,7 @@ local function SenderIsGroupLeader(name)
     return false
 end
 
-local function GroupLeaderName()
+function Sync.GroupLeaderName()
     local _, member
     for _, member in ipairs(GetRoster()) do
         if member.rank == 2 then return member.name end
@@ -852,23 +852,23 @@ local function GroupLeaderName()
     return nil
 end
 
-local function SyncStatusLine()
+function Sync.StatusLine()
     if not InRaid() and not InParty() then
         return "|cff888888SYNC: waiting for a group|r"
     end
-    local leader = GroupLeaderName()
+    local leader = Sync.GroupLeaderName()
     if not leader then return "|cff888888SYNC: finding group leader|r" end
     if IsSelf(leader) then
         return "|cff55ff88SYNC HOST: You are sharing roles as raid leader|r"
     end
-    local user = addonUsers[NameKey(leader)]
+    local user = Sync.addonUsers[NameKey(leader)]
     if user and GetTime() - user.seen <= 300 then
         return "|cff55ff88SYNCED: Raid leader " .. ShortName(leader) .. " is sharing roles|r"
     end
     return "|cffffcc55SYNC: Waiting for raid leader " .. ShortName(leader) .. "'s addon|r"
 end
 
-local function RoleFlags(roles)
+function Sync.RoleFlags(roles)
     local flags = ""
     if roles and roles.tank then flags = flags .. "1" end
     if roles and roles.healer then flags = flags .. "2" end
@@ -877,7 +877,7 @@ local function RoleFlags(roles)
     return flags
 end
 
-local function RolesFromFlags(flags)
+function Sync.RolesFromFlags(flags)
     local roles = {}
     for flag in tostring(flags or ""):gmatch(".") do
         if flag == "1" then roles.tank = true
@@ -889,46 +889,46 @@ local function RolesFromFlags(flags)
     return next(roles) and roles or nil
 end
 
-BroadcastSignup = function(signup)
+function Sync.BroadcastSignup(signup)
     if not signup or not signup.name or not signup.roles or not HasAutomationAuthority() then return end
     if not IsGrouped(signup.name) then return end
     local safeName = tostring(signup.name):gsub("|", "")
-    SendGroupAddonMessage(
-        "S|" .. safeName .. "|" .. RoleFlags(signup.roles)
+    Sync.SendGroupAddonMessage(
+        "S|" .. safeName .. "|" .. Sync.RoleFlags(signup.roles)
             .. "|" .. tostring(tonumber(signup.updated) or time())
     )
 end
 
-BroadcastSignupDelete = function(name)
+function Sync.BroadcastSignupDelete(name)
     if not name or not HasAutomationAuthority() or not IsGrouped(name) then return end
-    SendGroupAddonMessage("D|" .. tostring(name):gsub("|", "") .. "|" .. tostring(time()))
+    Sync.SendGroupAddonMessage("D|" .. tostring(name):gsub("|", "") .. "|" .. tostring(time()))
 end
 
-local function SendRoleSyncSnapshot()
+function Sync.SendRoleSyncSnapshot()
     if not IsRaidLeader() and not (InParty() and UnitIsPartyLeader("player")) then return end
     local now = GetTime()
-    if now - lastRoleSyncSnapshot < 2 then return end
-    lastRoleSyncSnapshot = now
+    if now - Sync.lastRoleSyncSnapshot < 2 then return end
+    Sync.lastRoleSyncSnapshot = now
     local stamp = tostring(time())
-    SendGroupAddonMessage("B|" .. stamp)
+    Sync.SendGroupAddonMessage("B|" .. stamp)
     local _, signup
     for _, signup in ipairs(db.signups) do
         if IsSelf(signup.name) or IsGrouped(signup.name) then
-            BroadcastSignup(signup)
+            Sync.BroadcastSignup(signup)
         end
     end
-    SendGroupAddonMessage("E|" .. stamp)
+    Sync.SendGroupAddonMessage("E|" .. stamp)
 end
 
-local function RequestRoleSync(force)
+function Sync.RequestRoleSync(force)
     if not IsManastormerAwake() or (not InRaid() and not InParty()) then return end
     local now = GetTime()
-    if not force and now - lastRoleSyncRequest < 10 then return end
-    lastRoleSyncRequest = now
-    SendGroupAddonMessage("Q")
+    if not force and now - Sync.lastRoleSyncRequest < 10 then return end
+    Sync.lastRoleSyncRequest = now
+    Sync.SendGroupAddonMessage("Q")
 end
 
-local function ReceiveRoleSync(message, sender)
+function Sync.ReceiveRoleSync(message, sender)
     if not IsManastormerAwake()
         or not ManastormAutomationAllowed()
         or not sender
@@ -938,17 +938,17 @@ local function ReceiveRoleSync(message, sender)
         return false
     end
     if message == "Q" then
-        SendRoleSyncSnapshot()
+        Sync.SendRoleSyncSnapshot()
         return true
     end
 
     local kind, name, value, updated = tostring(message or ""):match("^([S])|([^|]+)|([^|]*)|(%d+)$")
     if kind == "S" then
         if not IsGrouped(name) then return true end
-        local roles = RolesFromFlags(value)
+        local roles = Sync.RolesFromFlags(value)
         if not roles then return true end
         updated = tonumber(updated) or 0
-        local snapshot = roleSyncSnapshots[NameKey(sender)]
+        local snapshot = Sync.roleSyncSnapshots[NameKey(sender)]
         local signup = FindSignup(name)
         if not signup then
             db.nextOrder = (db.nextOrder or 0) + 1
@@ -976,13 +976,13 @@ local function ReceiveRoleSync(message, sender)
     end
 
     local beginStamp = tostring(message or ""):match("^B|(%d+)$")
-    if beginStamp and SenderIsGroupLeader(sender) then
-        roleSyncSnapshots[NameKey(sender)] = { stamp = beginStamp, seen = {} }
+    if beginStamp and Sync.SenderIsGroupLeader(sender) then
+        Sync.roleSyncSnapshots[NameKey(sender)] = { stamp = beginStamp, seen = {} }
         return true
     end
     local endStamp = tostring(message or ""):match("^E|(%d+)$")
-    local snapshot = roleSyncSnapshots[NameKey(sender)]
-    if endStamp and snapshot and snapshot.stamp == endStamp and SenderIsGroupLeader(sender) then
+    local snapshot = Sync.roleSyncSnapshots[NameKey(sender)]
+    if endStamp and snapshot and snapshot.stamp == endStamp and Sync.SenderIsGroupLeader(sender) then
         local index
         for index = #db.signups, 1, -1 do
             local signup = db.signups[index]
@@ -992,7 +992,7 @@ local function ReceiveRoleSync(message, sender)
                 table.remove(db.signups, index)
             end
         end
-        roleSyncSnapshots[NameKey(sender)] = nil
+        Sync.roleSyncSnapshots[NameKey(sender)] = nil
         Refresh()
         return true
     end
@@ -1548,7 +1548,7 @@ local function AddSignup(name, roles)
         table.insert(db.signups, signup)
         Print(ShortName(name) .. " signed: " .. RoleText(roles))
     end
-    BroadcastSignup(signup)
+    Sync.BroadcastSignup(signup)
 end
 
 local function RemoveSignup(name)
@@ -1560,13 +1560,13 @@ local function RemoveSignup(name)
             removed = true
         end
     end
-    if removed then BroadcastSignupDelete(name) end
+    if removed then Sync.BroadcastSignupDelete(name) end
 end
 
-local function ClearAllSignups()
+function Sync.ClearAllSignups()
     local _, signup
     for _, signup in ipairs(db.signups) do
-        BroadcastSignupDelete(signup.name)
+        Sync.BroadcastSignupDelete(signup.name)
     end
     db.signups = {}
 end
@@ -1598,7 +1598,7 @@ local function ToggleManualRole(name, role)
         Print(ShortName(name) .. " has no Mana Storm role.")
     else
         Print(ShortName(name) .. " manually set: " .. RoleText(signup.roles))
-        BroadcastSignup(signup)
+        Sync.BroadcastSignup(signup)
     end
     Refresh()
 end
@@ -1995,7 +1995,7 @@ Refresh = function()
             )
         end
 
-        table.insert(compactLines, SyncStatusLine())
+        table.insert(compactLines, Sync.StatusLine())
 
         if #level59Players > 0 then
             table.insert(compactLines, "|cffffaa33Level 59:|r " .. table.concat(level59Players, ", "))
@@ -2066,7 +2066,7 @@ Refresh = function()
         compositionLine = state .. "  " .. groupSize .. "/" .. MAX_PLAYERS
             .. "  DPS " .. dpsCount .. "/" .. dpsTarget .. "  |cffff6666NEED " .. needs .. "|r"
     end
-    statusText:SetText(compositionLine .. "\n" .. SyncStatusLine())
+    statusText:SetText(compositionLine .. "\n" .. Sync.StatusLine())
     listenButton:SetText(not hasAuthority and "Silent" or (sessionActive and "Pause" or "Listen"))
 end
 
@@ -2830,7 +2830,7 @@ local function ScrollWhispers(amount)
     RefreshWhisperPanel()
 end
 
-local function ScannerRoleMarkup(roles)
+function Sync.ScannerRoleMarkup(roles)
     if not roles then return "UNASSIGNED" end
     local parts = {}
     if roles.tank then
@@ -2866,7 +2866,7 @@ RefreshChatScannerPanel = function()
             row.name:SetTextColor(0.35, 0.82, 1, 1)
             row.name:SetText(ShortName(entry.name))
             row.message:SetText(entry.message or "")
-            row.roles:SetText(ScannerRoleMarkup(entry.roles))
+            row.roles:SetText(Sync.ScannerRoleMarkup(entry.roles))
             local timeText = entry.at and date("%H:%M", entry.at) or ""
             row.time:SetText(timeText .. (entry.source and "  " .. entry.source or ""))
             if IsBlocked60(entry.name) then
@@ -2895,14 +2895,14 @@ RefreshChatScannerPanel = function()
     end
 end
 
-local function ScrollChatScanner(amount)
+function Sync.ScrollChatScanner(amount)
     local log = db and db.chatScanner or {}
     local maximum = math.max(0, #log - VisibleRecruitmentRows(chatScannerPanel, chatScannerRows))
     chatScannerScrollOffset = Clamp(chatScannerScrollOffset + amount, 0, maximum)
     RefreshChatScannerPanel()
 end
 
-local function PositionChatScanner()
+function Sync.PositionChatScanner()
     if not chatScannerPanel or not whisperPanel then return end
     chatScannerPanel:ClearAllPoints()
     local dock = db.chatScannerDock
@@ -2928,7 +2928,7 @@ local function PositionChatScanner()
     end
 end
 
-local function FinishChatScannerMove(self)
+function Sync.FinishChatScannerMove(self)
     self:StopMovingOrSizing()
     local snapDistance = 45
     local scannerLeft, scannerRight = self:GetLeft(), self:GetRight()
@@ -2976,7 +2976,7 @@ local function FinishChatScannerMove(self)
     if dock then
         db.chatScannerDock = dock
         db.chatScannerPosition = nil
-        PositionChatScanner()
+        Sync.PositionChatScanner()
     else
         local point, _, relativePoint, x, y = self:GetPoint(1)
         db.chatScannerDock = "free"
@@ -2989,11 +2989,11 @@ local function FinishChatScannerMove(self)
     end
 end
 
-local function CreateChatScannerPanel(parent)
+function Sync.CreateChatScannerPanel(parent)
     chatScannerPanel = CreateFrame("Frame", nil, parent)
     chatScannerPanel:SetWidth(560)
     chatScannerPanel:SetHeight(parent:GetHeight())
-    PositionChatScanner()
+    Sync.PositionChatScanner()
     chatScannerPanel:SetMovable(true)
     chatScannerPanel:SetClampedToScreen(true)
     chatScannerPanel:RegisterForDrag("LeftButton")
@@ -3010,7 +3010,7 @@ local function CreateChatScannerPanel(parent)
     chatScannerPanel:SetScript("OnDragStart", chatScannerPanel.StartMoving)
     chatScannerPanel:SetScript("OnDragStop", FinishChatScannerMove)
     chatScannerPanel:SetScript("OnMouseWheel", function(_, delta)
-        ScrollChatScanner(delta > 0 and -1 or 1)
+        Sync.ScrollChatScanner(delta > 0 and -1 or 1)
     end)
 
     local header = chatScannerPanel:CreateTexture(nil, "BACKGROUND")
@@ -3104,7 +3104,7 @@ local function CreateChatScannerPanel(parent)
     older:SetPoint("BOTTOMLEFT", 20, 14)
     StyleButton(older, "slate", "Older Scanner Posts", "Moves back through saved public recruitment posts.")
     older:SetText("OLDER")
-    older:SetScript("OnClick", function() ScrollChatScanner(5) end)
+    older:SetScript("OnClick", function() Sync.ScrollChatScanner(5) end)
 
     local newer = CreateFrame("Button", nil, chatScannerPanel)
     newer:SetWidth(72)
@@ -3112,7 +3112,7 @@ local function CreateChatScannerPanel(parent)
     newer:SetPoint("LEFT", older, "RIGHT", 5, 0)
     StyleButton(newer, "slate", "Newer Scanner Posts", "Moves forward toward the latest public recruitment posts.")
     newer:SetText("NEWER")
-    newer:SetScript("OnClick", function() ScrollChatScanner(-5) end)
+    newer:SetScript("OnClick", function() Sync.ScrollChatScanner(-5) end)
 
     chatScannerScrollText = chatScannerPanel:CreateFontString(nil, "OVERLAY")
     chatScannerScrollText:SetFont(FONT_BODY, 9, "")
@@ -3132,7 +3132,7 @@ local function CreateChatScannerPanel(parent)
     end)
 end
 
-local function CreateWhisperPanel()
+function Sync.CreateWhisperPanel()
     if whisperPanel then return end
     whisperPanel = CreateFrame("Frame", "ManastormerWhisperPanel", UIParent)
     whisperPanel:SetWidth(640)
@@ -3409,12 +3409,12 @@ local function CreateWhisperPanel()
         self.resizing = false
     end)
 
-    CreateChatScannerPanel(whisperPanel)
+    Sync.CreateChatScannerPanel(whisperPanel)
     whisperPanel:Hide()
 end
 
-local function ToggleWhisperPanel()
-    if not whisperPanel then CreateWhisperPanel() end
+function Sync.ToggleWhisperPanel()
+    if not whisperPanel then Sync.CreateWhisperPanel() end
     if whisperPanel:IsShown() then
         whisperPanel:Hide()
     else
@@ -3423,13 +3423,13 @@ local function ToggleWhisperPanel()
         whisperPanel:Show()
         Schedule(0.05, function()
             if whisperPanel and whisperPanel:IsShown() and chatScannerPanel then
-                FinishChatScannerMove(chatScannerPanel)
+                Sync.FinishChatScannerMove(chatScannerPanel)
             end
         end)
     end
 end
 
-local function CaptureWhisper(author, message, roles, source)
+function Sync.CaptureWhisper(author, message, roles, source)
     if not db or not author or not message then return end
     if IsSelf(author) then return end
     local lowerMessage = Trim(message):lower()
@@ -3456,7 +3456,7 @@ local function CaptureWhisper(author, message, roles, source)
     return true
 end
 
-local function NormalizeRecruitmentMessage(message)
+function Sync.NormalizeRecruitmentMessage(message)
     local normalized = Trim(message):lower()
     normalized = normalized:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
     normalized = normalized:gsub("|h", ""):gsub("|H", "")
@@ -3464,17 +3464,17 @@ local function NormalizeRecruitmentMessage(message)
     return Trim(normalized)
 end
 
-local function IsDuplicateChatScan(author, message)
+function Sync.IsDuplicateChatScan(author, message)
     local log = db and db.chatScanner or {}
     local authorKey = NameKey(author)
-    local normalized = NormalizeRecruitmentMessage(message)
+    local normalized = Sync.NormalizeRecruitmentMessage(message)
     local now = time()
     local index
     for index = #log, 1, -1 do
         local entry = log[index]
         if entry.at and now - entry.at > 60 then break end
         if NameKey(entry.name) == authorKey
-            and NormalizeRecruitmentMessage(entry.message) == normalized
+            and Sync.NormalizeRecruitmentMessage(entry.message) == normalized
         then
             return true
         end
@@ -3482,10 +3482,10 @@ local function IsDuplicateChatScan(author, message)
     return false
 end
 
-local function CaptureChatScan(author, message, roles, source)
+function Sync.CaptureChatScan(author, message, roles, source)
     if not db or not author or not message or not roles then return end
     if IsSelf(author) then return end
-    if IsDuplicateChatScan(author, message) then return end
+    if Sync.IsDuplicateChatScan(author, message) then return end
     db.chatScanner = db.chatScanner or {}
     table.insert(db.chatScanner, {
         name = author,
@@ -3499,7 +3499,7 @@ local function CaptureChatScan(author, message, roles, source)
     RefreshChatScannerPanel()
 end
 
-local function MakeRoleBox(parent, role, x)
+function Sync.MakeRoleBox(parent, role, x)
     local box = CreateFrame("Frame", nil, parent)
     box:SetWidth(124)
     box:SetHeight(68)
@@ -3572,7 +3572,7 @@ SetMinimized = function(minimized)
     UpdateKick59Button()
 end
 
-local function SetPanelShown(shown)
+function Sync.SetPanelShown(shown)
     shown = shown and true or false
     if InCombatLockdown and InCombatLockdown() then
         pendingPanelShown = shown
@@ -3589,9 +3589,9 @@ local function SetPanelShown(shown)
         Schedule(0.5, function()
             BroadcastVersion(true)
             if IsRaidLeader() or (InParty() and UnitIsPartyLeader("player")) then
-                SendRoleSyncSnapshot()
+                Sync.SendRoleSyncSnapshot()
             else
-                RequestRoleSync(true)
+                Sync.RequestRoleSync(true)
             end
         end)
     else
@@ -3613,7 +3613,7 @@ local function SetPanelShown(shown)
     return true
 end
 
-local function PositionMinimapButton()
+function Sync.PositionMinimapButton()
     if not minimapButton or not db or not db.minimap then return end
     local radians = math.rad(db.minimap.angle or 225)
     local radius = 80
@@ -3627,7 +3627,7 @@ local function PositionMinimapButton()
     )
 end
 
-local function UpdateMinimapDrag(button)
+function Sync.UpdateMinimapDrag(button)
     local minimapX, minimapY = Minimap:GetCenter()
     local cursorX, cursorY = GetCursorPosition()
     local scale = UIParent:GetEffectiveScale()
@@ -3645,10 +3645,10 @@ local function UpdateMinimapDrag(button)
         end
     end
     db.minimap.angle = angle
-    PositionMinimapButton()
+    Sync.PositionMinimapButton()
 end
 
-local function SetMinimapButtonShown(shown)
+function Sync.SetMinimapButtonShown(shown)
     if not minimapButton then return end
     db.minimap.hide = not shown
     if shown then
@@ -3660,7 +3660,7 @@ local function SetMinimapButtonShown(shown)
     end
 end
 
-local function CreateMinimapButton()
+function Sync.CreateMinimapButton()
     if minimapButton then return end
     minimapButton = CreateFrame("Button", "ManastormerMinimapButton", Minimap)
     minimapButton:SetWidth(33)
@@ -3709,9 +3709,9 @@ local function CreateMinimapButton()
             return
         end
         if mouseButton == "LeftButton" then
-            SetPanelShown(not panel:IsShown())
+            Sync.SetPanelShown(not panel:IsShown())
         else
-            SetMinimapButtonShown(false)
+            Sync.SetMinimapButtonShown(false)
         end
     end)
     minimapButton:SetScript("OnEnter", function(self)
@@ -3724,11 +3724,11 @@ local function CreateMinimapButton()
     end)
     minimapButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    PositionMinimapButton()
+    Sync.PositionMinimapButton()
     if db.minimap.hide then minimapButton:Hide() else minimapButton:Show() end
 end
 
-local function CreatePanel()
+function Sync.CreatePanel()
     panel = CreateFrame("Frame", "ManastormerFrame", UIParent)
     panel:SetWidth(410)
     panel:SetHeight(456)
@@ -3803,7 +3803,7 @@ local function CreatePanel()
     close:SetPoint("TOPRIGHT", -9, -10)
     StyleButton(close, "slate", "Close Manastormer", "Hides the panel. Click the minimap button or type /msm to show it again.")
     close:SetText("X")
-    close:SetScript("OnClick", function() SetPanelShown(false) end)
+    close:SetScript("OnClick", function() Sync.SetPanelShown(false) end)
 
     minimizeButton = CreateFrame("Button", nil, panel)
     minimizeButton:SetWidth(30)
@@ -3847,9 +3847,9 @@ local function CreatePanel()
     compactText:SetJustifyV("TOP")
     compactText:Hide()
 
-    MakeRoleBox(panel, "tank", 10)
-    MakeRoleBox(panel, "healer", 143)
-    MakeRoleBox(panel, "aura", 276)
+    Sync.MakeRoleBox(panel, "tank", 10)
+    Sync.MakeRoleBox(panel, "healer", 143)
+    Sync.MakeRoleBox(panel, "aura", 276)
 
     listenButton = MakeButton(panel, "Listen", 120, function()
         sessionActive = not sessionActive
@@ -3880,7 +3880,7 @@ local function CreatePanel()
     askButton:SetPoint("LEFT", listenButton, "RIGHT", 5, 0)
 
     local inviteButton = MakeButton(panel, "WHISPERS", 140, function()
-        ToggleWhisperPanel()
+        Sync.ToggleWhisperPanel()
     end, "Recruitment Whispers", "Opens the live whisper list. Each player has a separate Invite button; there is no bulk auto-invite.", "blue")
     inviteButton:SetPoint("LEFT", askButton, "RIGHT", 5, 0)
 
@@ -3964,7 +3964,7 @@ local function CreatePanel()
     TrackFullUI(level59Hover)
 
     local clearButton = MakeButton(panel, "Clear Roles", 100, function()
-        ClearAllSignups()
+        Sync.ClearAllSignups()
         db.nextOrder = 0
         warningSeen = {}
         Print("Role signups cleared.")
@@ -4053,7 +4053,7 @@ local function CreatePanel()
     UpdateRosterDepartures()
     SetMinimized(db.minimized == true)
     Refresh()
-    CreateMinimapButton()
+    Sync.CreateMinimapButton()
 end
 
 local CHAT_EVENTS = {
@@ -4074,7 +4074,7 @@ local CHAT_EVENTS = {
 addon:SetScript("OnUpdate", function()
     if IsManastormerAwake() and HasAutomationAuthority() then
         ProcessRaidLevelReport()
-        MaybeNotifyMissingAuraGroups()
+        Sync.MaybeNotifyMissingAuraGroups()
     else
         raidReportQueue = nil
         readyCheckArmed = false
@@ -4116,7 +4116,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
                 db.blocked60[blockedName] = nil
             end
         end
-        CreatePanel()
+        Sync.CreatePanel()
         if type(RegisterAddonMessagePrefix) == "function" then
             pcall(RegisterAddonMessagePrefix, VERSION_PREFIX)
         end
@@ -4128,17 +4128,17 @@ addon:SetScript("OnEvent", function(self, event, ...)
         Schedule(2, function()
             if IsManastormerAwake() then
                 BroadcastVersion(true)
-                RequestRoleSync(true)
+                Sync.RequestRoleSync(true)
             end
         end)
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, message, _, sender = ...
         if IsManastormerAwake() and prefix == VERSION_PREFIX then
             if sender and not IsSelf(sender) and IsGrouped(sender) then
-                addonUsers[NameKey(sender)] = { name = sender, seen = GetTime() }
+                Sync.addonUsers[NameKey(sender)] = { name = sender, seen = GetTime() }
             end
             ReceiveVersion(message, sender)
-            ReceiveRoleSync(message, sender)
+            Sync.ReceiveRoleSync(message, sender)
             Refresh()
         end
     elseif CHAT_EVENTS[event] then
@@ -4146,14 +4146,14 @@ addon:SetScript("OnEvent", function(self, event, ...)
         local roles = event == "CHAT_MSG_WHISPER" and ParseWhisperRoles(message) or ParseRoles(message)
         local activityAllowed = IsManastormerAwake() and ManastormAutomationAllowed()
         if event == "CHAT_MSG_WHISPER" and author and activityAllowed then
-            local captured = CaptureWhisper(author, message, roles, "Whisper")
+            local captured = Sync.CaptureWhisper(author, message, roles, "Whisper")
             if captured then
                 MaybeReplyRoleCapacity(author, roles)
             end
         elseif activityAllowed and whisperPanel and whisperPanel:IsShown() and author then
             local recruitmentRoles = ParseWhisperRoles(message)
             if IsLFGManastormPost(message, recruitmentRoles) then
-                CaptureChatScan(author, message, recruitmentRoles, ChatSource(event, channelName))
+                Sync.CaptureChatScan(author, message, recruitmentRoles, ChatSource(event, channelName))
             end
         end
         if sessionActive and HasAutomationAuthority() and ManastormAutomationAllowed()
@@ -4190,7 +4190,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
         Schedule(1, function()
             if IsManastormerAwake() then
                 BroadcastVersion(false)
-                RequestRoleSync(false)
+                Sync.RequestRoleSync(false)
             end
         end)
     elseif event == "LFG_UPDATE"
@@ -4228,7 +4228,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
         if pendingPanelShown ~= nil then
             local requestedVisibility = pendingPanelShown
             pendingPanelShown = nil
-            SetPanelShown(requestedVisibility)
+            Sync.SetPanelShown(requestedVisibility)
         end
         if pendingMinimizedState ~= nil then
             local requestedState = pendingMinimizedState
@@ -4351,16 +4351,16 @@ SlashCmdList["MANASTORMER"] = function(message)
         sessionActive = false
         Refresh()
     elseif command == "clear" then
-        ClearAllSignups()
+        Sync.ClearAllSignups()
         db.nextOrder = 0
         warningSeen = {}
         Refresh()
     elseif command == "api" or command == "debugapi" then
         PrintManastormDiagnostics()
     elseif command == "minimap" then
-        SetMinimapButtonShown(not minimapButton:IsShown())
+        Sync.SetMinimapButtonShown(not minimapButton:IsShown())
     elseif command == "whispers" or command == "invite" then
-        ToggleWhisperPanel()
+        Sync.ToggleWhisperPanel()
     elseif command == "tank" or command == "healer" or command == "dps" or command == "aura" then
         local name = Trim(rest)
         if name == "" then
@@ -4394,9 +4394,9 @@ SlashCmdList["MANASTORMER"] = function(message)
         Print("/msm clearrole - clear your target's Mana Storm roles")
     else
         if panel:IsShown() then
-            SetPanelShown(false)
+            Sync.SetPanelShown(false)
         else
-            SetPanelShown(true)
+            Sync.SetPanelShown(true)
         end
     end
 end

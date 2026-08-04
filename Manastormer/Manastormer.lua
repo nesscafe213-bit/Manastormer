@@ -95,12 +95,25 @@ local function ShortName(name)
     return (name and name:match("^[^-]+")) or name or "Unknown"
 end
 
+local function NormalizedName(name)
+    return tostring(name or ""):lower():gsub("%s+", "")
+end
+
+local function HasRealmSuffix(name)
+    return tostring(name or ""):find("-", 1, true) ~= nil
+end
+
 local function SameName(left, right)
     if not left or not right then
         return false
     end
-    return left:lower() == right:lower()
-        or ShortName(left):lower() == ShortName(right):lower()
+    if NormalizedName(left) == NormalizedName(right) then
+        return true
+    end
+    if HasRealmSuffix(left) and HasRealmSuffix(right) then
+        return false
+    end
+    return ShortName(left):lower() == ShortName(right):lower()
 end
 
 local function InterfaceCompatibilityMode()
@@ -111,7 +124,7 @@ local function InterfaceCompatibilityMode()
 end
 
 local function NameKey(name)
-    return ShortName(name):lower()
+    return NormalizedName(name)
 end
 
 local function Clamp(value, minimum, maximum)
@@ -210,12 +223,22 @@ local function IsDungeonFinderActive()
     if type(GetLFGMode) ~= "function" then
         return false
     end
-    local ok, mode = pcall(GetLFGMode)
+    local ok, mode, submode = pcall(GetLFGMode)
     if not ok then
         return false
     end
     mode = Trim(mode):lower()
-    return mode ~= "" and mode ~= "none"
+    submode = Trim(submode):lower()
+    if mode == "lfgparty" or submode == "lfgparty" then
+        return true
+    end
+    if InParty() or InRaid() then
+        return mode == "rolecheck"
+            or mode == "proposal"
+            or submode == "rolecheck"
+            or submode == "proposal"
+    end
+    return false
 end
 
 local function ManastormAutomationAllowed()
@@ -472,6 +495,21 @@ local function GetRoster()
     return roster
 end
 
+local function VerifiedMemberLevel(member)
+    if not member then return nil end
+    local unitLevel = member.unit and UnitLevel(member.unit) or nil
+    local rosterLevel = tonumber(member.level)
+    unitLevel = tonumber(unitLevel)
+    if unitLevel and unitLevel > 0 and rosterLevel and rosterLevel > 0 then
+        -- Require both live sources to catch up before declaring level 60.
+        -- This avoids a recycled raid unit briefly reporting its prior player.
+        return math.min(unitLevel, rosterLevel)
+    end
+    if unitLevel and unitLevel > 0 then return unitLevel end
+    if rosterLevel and rosterLevel > 0 then return rosterLevel end
+    return nil
+end
+
 local function FindSignup(name)
     local _, signup
     for _, signup in ipairs(db.signups) do
@@ -483,13 +521,50 @@ local function FindSignup(name)
 end
 
 local function IsBlocked60(name)
-    local blockedName
-    for blockedName in pairs(db.blocked60 or {}) do
-        if SameName(blockedName, name) then
+    local blockedName, record
+    local now = time()
+    for blockedName, record in pairs(db.blocked60 or {}) do
+        local blockedAt = type(record) == "table" and tonumber(record.at) or nil
+        if type(record) ~= "table" then
+            -- Older builds stored only a short-name boolean. It cannot safely
+            -- distinguish another character with the same name.
+            db.blocked60[blockedName] = nil
+        elseif not blockedAt or now - blockedAt > 7200 then
+            db.blocked60[blockedName] = nil
+        elseif NormalizedName(blockedName) == NormalizedName(name) then
             return true
         end
     end
     return false
+end
+
+local function RememberLevel60(name, unit)
+    if not name then return end
+    db.blocked60[name] = {
+        at = time(),
+        guid = unit and type(UnitGUID) == "function" and UnitGUID(unit) or nil,
+    }
+end
+
+local function ClearLevel60Record(name, unit)
+    if not name then return end
+    local guid = unit and type(UnitGUID) == "function" and UnitGUID(unit) or nil
+    local blockedName, record
+    for blockedName, record in pairs(db.blocked60 or {}) do
+        local recordGUID = type(record) == "table" and record.guid or nil
+        if NormalizedName(blockedName) == NormalizedName(name)
+            or (guid and recordGUID and guid == recordGUID)
+        then
+            db.blocked60[blockedName] = nil
+        end
+    end
+    local pendingName
+    for pendingName in pairs(pendingLevel60Kicks) do
+        if NormalizedName(pendingName) == NormalizedName(name) then
+            pendingLevel60Kicks[pendingName] = nil
+        end
+    end
+    warningSeen[name .. ":60"] = nil
 end
 
 local function IsGrouped(name)
@@ -712,7 +787,7 @@ local function StartRaidLevelReport()
     local lines = {}
     local _, member
     for _, member in ipairs(GetRoster()) do
-        local level = member.unit and UnitLevel(member.unit) or member.level
+        local level = VerifiedMemberLevel(member)
         if not level or level <= 0 then
             level = "?"
         end
@@ -864,11 +939,8 @@ local function FindManastormLevelOneButton()
 end
 
 local function ClickManastormEnter()
-    -- C_Manastorm.Enter and programmatic :Click() calls can taint Ascension's
-    -- protected UpdateQueueButton path. Only inspect the native UI here; the
-    -- player must perform the final click on Ascension's own button.
-    manastormEntryArmed = false
-    if enterManastormButton then enterManastormButton:SetText("CHECK MANASTORM 1") end
+    -- Ascension protects its queue path. Validate the native control here and
+    -- let Manastormer's SecureActionButton perform the final hardware click.
     local queueFrame = _G.ManastormQueueFrame
     local enterButton = _G.ManastormQueueFrameRightPanelEnterButton
     local dropdown = _G.ManastormQueueFrameRightPanelLevelDropDown
@@ -882,8 +954,11 @@ local function ClickManastormEnter()
         LocalWarning("Select Level 1 on Ascension's Mana Storm panel first.")
         return false
     end
-    LocalWarning("Level 1 is selected. Click Ascension's Enter Group Manastorm button now.")
-    return true
+    if type(enterButton.IsEnabled) == "function" and not enterButton:IsEnabled() then
+        LocalWarning("Ascension's Enter Group Manastorm button is currently disabled.")
+        return false
+    end
+    return true, enterButton
 end
 
 local function QueueForManastorm()
@@ -996,7 +1071,7 @@ local function FinishReadyCheckQueue()
         LocalWarning("Not ready: " .. table.concat(notReady, ", ") .. ".")
         return
     end
-    LocalWarning("All " .. GroupSize() .. " raid members are ready. Select Level 1 and click Ascension's Enter Group Manastorm button.")
+    LocalWarning("All " .. GroupSize() .. " raid members are ready. Open Ascension's Mana Storm panel, select Level 1, then click Manastormer's ENTER MANASTORM 1 button.")
 end
 
 local function TryFinishReadyCheckEarly()
@@ -1031,7 +1106,7 @@ local function StartReadyCheckQueue()
     end
     readyCheckArmed = true
     manastormEntryArmed = false
-    if enterManastormButton then enterManastormButton:SetText("CHECK MANASTORM 1") end
+    if enterManastormButton then enterManastormButton:SetText("ENTER MANASTORM 1") end
     readyResponses = {}
     readyResponses[NameKey(UnitFullName("player"))] = true
     if readyCheckButton then
@@ -1261,9 +1336,7 @@ local function CurrentLevel60Members()
     local _, member
     for _, member in ipairs(GetRoster()) do
         local level = member.unit and UnitLevel(member.unit) or member.level
-        if not IsSelf(member.name)
-            and ((level and level >= 60) or IsBlocked60(member.name))
-        then
+        if not IsSelf(member.name) and level and level >= 60 then
             table.insert(players, member.name)
         end
     end
@@ -1305,7 +1378,15 @@ UpdateKickButton = function()
     local kickName
     local name
     for name in pairs(pendingLevel60Kicks) do
-        if IsGrouped(name) then
+        local liveLevel
+        local _, member
+        for _, member in ipairs(GetRoster()) do
+            if SameName(member.name, name) then
+                liveLevel = VerifiedMemberLevel(member)
+                break
+            end
+        end
+        if liveLevel and liveLevel >= 60 then
             kickName = name
             break
         else
@@ -1419,7 +1500,13 @@ local function WarnWipeForLevel60(newLevel)
     local _, name
     for _, name in ipairs(players) do
         table.insert(shortNames, ShortName(name))
-        db.blocked60[name] = true
+        local _, member
+        for _, member in ipairs(GetRoster()) do
+            if SameName(member.name, name) then
+                RememberLevel60(member.name, member.unit)
+                break
+            end
+        end
         pendingLevel60Kicks[name] = true
     end
     local warningKey = tostring(newLevel or "?") .. ":" .. table.concat(shortNames, ",")
@@ -1449,8 +1536,11 @@ local function CheckLevels()
     end
     local _, member
     for _, member in ipairs(GetRoster()) do
-        local level = UnitLevel(member.unit)
+        local level = VerifiedMemberLevel(member)
         local signup = FindSignup(member.name)
+        if level and level > 0 and level < 60 then
+            ClearLevel60Record(member.name, member.unit)
+        end
         if sessionActive and signup and level == 59 then
             local key = member.name .. ":59:" .. RoleText(signup.roles)
             if not warningSeen[key] then
@@ -1462,7 +1552,7 @@ local function CheckLevels()
             local key = member.name .. ":60"
             if not warningSeen[key] then
                 warningSeen[key] = true
-                db.blocked60[member.name] = true
+                RememberLevel60(member.name, member.unit)
                 WarnRaid(ShortName(member.name) .. " HIT LEVEL 60! STOP - removing them from the group.")
             end
             if not pendingLevel60Kicks[member.name] then
@@ -3414,7 +3504,24 @@ local function CreatePanel()
     end, "Ready Check Only", "Starts and tracks a normal raid ready check. It does not enter or queue a Manastorm.", "green")
     readyCheckButton:SetPoint("TOPLEFT", 10, -217)
 
-    enterManastormButton = MakeButton(panel, "CHECK MANASTORM 1", 192, function()
+    enterManastormButton = CreateFrame(
+        "Button",
+        "ManastormerSecureEnterButton",
+        panel,
+        "SecureActionButtonTemplate"
+    )
+    enterManastormButton:SetWidth(192)
+    enterManastormButton:SetHeight(28)
+    StyleButton(
+        enterManastormButton,
+        "green",
+        "Enter Manastorm Level 1",
+        "Securely presses Ascension's native Enter Group Manastorm control. Open Ascension's Mana Storm panel and select Level 1 first. A user click is required by WoW's protected-action rules."
+    )
+    enterManastormButton:SetText("ENTER MANASTORM 1")
+    enterManastormButton:SetAttribute("type", "click")
+    enterManastormButton:SetScript("PreClick", function(self)
+        self:SetAttribute("clickbutton", nil)
         if not InRaid() then
             LocalWarning("You must be in a raid to enter Group Manastorm.")
             return
@@ -3423,13 +3530,27 @@ local function CreatePanel()
             LocalWarning("You need raid leader or assistant to enter Group Manastorm.")
             return
         end
-        manastormEntryArmed = true
-        enterManastormButton:SetText("CHECKING ENTRY...")
-        if not QueueForManastorm() then
+        local ready, nativeButton = QueueForManastorm()
+        if ready and nativeButton then
+            manastormEntryArmed = true
+            self:SetAttribute("clickbutton", nativeButton)
+            self:SetText("ENTERING...")
+        else
             manastormEntryArmed = false
-            enterManastormButton:SetText("CHECK MANASTORM 1")
+            self:SetText("ENTER MANASTORM 1")
         end
-    end, "Check Manastorm Level 1", "Safely checks that Ascension's Mana Storm panel is open with Level 1 selected. To prevent secure-action errors, click Ascension's native Enter Group Manastorm button yourself.", "green")
+    end)
+    enterManastormButton:SetScript("PostClick", function(self)
+        if manastormEntryArmed then
+            Schedule(2, function()
+                if manastormEntryArmed then
+                    manastormEntryArmed = false
+                    self:SetText("ENTER MANASTORM 1")
+                end
+            end)
+        end
+    end)
+    TrackFullUI(enterManastormButton)
     enterManastormButton:SetPoint("LEFT", readyCheckButton, "RIGHT", 6, 0)
 
     level59Text = panel:CreateFontString(nil, "OVERLAY")
@@ -3718,7 +3839,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
     elseif event == "ENTER_MANASTORM_RESULT" then
         local result = ...
         manastormEntryArmed = false
-        if enterManastormButton then enterManastormButton:SetText("CHECK MANASTORM 1") end
+        if enterManastormButton then enterManastormButton:SetText("ENTER MANASTORM 1") end
         if result and result ~= "ENTER_MANASTORM_OK" then
             LocalWarning("Manastorm entry failed: " .. tostring(result))
         else
@@ -3731,7 +3852,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
         activeManastormLevel = newLevel or 0
         if newLevel and newLevel > 0 and previousLevel ~= newLevel then
             manastormEntryArmed = false
-            if enterManastormButton then enterManastormButton:SetText("CHECK MANASTORM 1") end
+            if enterManastormButton then enterManastormButton:SetText("ENTER MANASTORM 1") end
             WarnWipeForLevel60(newLevel)
         end
         if previousLevel == 0 and newLevel and newLevel >= 1 then

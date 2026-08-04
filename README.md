@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.15**
+Current release: **v2.8.16**
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.15.zip`.
+2. Download `Manastormer-2.8.16.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -26,6 +26,7 @@ backs up the existing addon, installs the update and verifies the version.
 
 ## Highlights
 
+- Restores addon loading on Ascension after v2.8.15 exceeded its legacy Lua local-variable limit.
 - Role and Aura assignments synchronise between grouped Manastormer users, with the raid leader providing the full shared snapshot.
 - The GUI identifies the detected Manastormer raid leader or shows that you are hosting the sync.
 - The raid leader posts a normal raid-chat reminder every two minutes when an occupied subgroup has no Aura; it never uses Raid Warning.

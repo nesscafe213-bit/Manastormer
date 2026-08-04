@@ -14,7 +14,8 @@ OPEN THE ADDON
 
 MAIN FEATURES
 - Automatically suspends recruitment capture, chat scanning, capacity replies
-  and raid automation inside non-Manastorm instances, then resumes after leaving.
+  and raid automation for Dungeon Finder queues/groups and inside non-Manastorm
+  instances, then resumes afterward.
 - Compatible with both ElvUI and Ascension's native WoW interface. Manastormer
   detects the active interface but never hooks, hides or modifies its protected
   raid frames or unit-popup menus.

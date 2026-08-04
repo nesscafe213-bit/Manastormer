@@ -253,6 +253,10 @@ local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage("|cffe8c96aManastormer:|r " .. tostring(message))
 end
 
+local function IsManastormerAwake()
+    return panel and panel:IsShown() and true or false
+end
+
 local function UpdateActivityState(announce)
     local allowed = ManastormAutomationAllowed()
     if announce and lastActivityAllowed ~= nil and allowed ~= lastActivityAllowed then
@@ -685,7 +689,7 @@ local function ReceiveVersion(message, sender)
 end
 
 local function WarnRaid(message)
-    if not HasAutomationAuthority() then
+    if not IsManastormerAwake() or not HasAutomationAuthority() then
         return
     end
     LocalWarning(message)
@@ -808,6 +812,10 @@ local function StartRaidLevelReport()
 end
 
 local function ProcessRaidLevelReport()
+    if not IsManastormerAwake() then
+        raidReportQueue = nil
+        return
+    end
     if not raidReportQueue or GetTime() < raidReportQueue.nextAt then
         return
     end
@@ -823,6 +831,7 @@ local function ProcessRaidLevelReport()
 end
 
 local function AssignTankMarkers()
+    if not IsManastormerAwake() then return end
     if not IsInsideManastorm() or not InRaid() or not CanManageRaid() then
         return
     end
@@ -1160,7 +1169,11 @@ local function MaybeReplyRoleCapacity(author, roles)
     if not author or not roles or IsSelf(author) or IsGrouped(author) then
         return
     end
-    if not sessionActive or not HasAutomationAuthority() or not ManastormAutomationAllowed() then
+    if not IsManastormerAwake()
+        or not sessionActive
+        or not HasAutomationAuthority()
+        or not ManastormAutomationAllowed()
+    then
         return
     end
 
@@ -1222,7 +1235,7 @@ local function MaybeReplyRoleCapacity(author, roles)
 end
 
 local function TrackChaoticLink(...)
-    if not HasAutomationAuthority() or not IsInsideManastorm() then
+    if not IsManastormerAwake() or not HasAutomationAuthority() or not IsInsideManastorm() then
         return
     end
     local _, combatEvent, _, _, _, destGUID, destName, _, spellID, _, _, _, amount = ...
@@ -1423,7 +1436,8 @@ UpdateKickButton = function()
 end
 
 local function AttemptLevel60Kick(name)
-    if not HasAutomationAuthority()
+    if not IsManastormerAwake()
+        or not HasAutomationAuthority()
         or not ManastormAutomationAllowed()
         or not name
         or IsSelf(name)
@@ -1488,7 +1502,7 @@ local function UpdateRosterDepartures()
 end
 
 local function WarnWipeForLevel60(newLevel)
-    if not HasAutomationAuthority() then
+    if not IsManastormerAwake() or not HasAutomationAuthority() then
         return
     end
     local players = CurrentLevel60Members()
@@ -1531,7 +1545,10 @@ local function WarnWipeForLevel60(newLevel)
 end
 
 local function CheckLevels()
-    if not HasAutomationAuthority() or not ManastormAutomationAllowed() then
+    if not IsManastormerAwake()
+        or not HasAutomationAuthority()
+        or not ManastormAutomationAllowed()
+    then
         return
     end
     local _, member
@@ -3216,8 +3233,22 @@ local function SetPanelShown(shown)
     pendingPanelShown = nil
     if shown then
         panel:Show()
+        UpdateActivityState(false)
+        UpdateRosterDepartures()
+        CheckLevels()
         Refresh()
     else
+        raidReportQueue = nil
+        readyCheckArmed = false
+        manastormEntryArmed = false
+        pendingLevel60Kicks = {}
+        chaoticLinkStacks = {}
+        chaoticLinkLastWarning = {}
+        chaoticLinkLastAnnouncedStack = {}
+        chaoticLinkBrokenAt = {}
+        if whisperPanel then whisperPanel:Hide() end
+        if enterManastormButton then enterManastormButton:SetText("ENTER MANASTORM 1") end
+        UpdateKickButton()
         panel:Hide()
     end
     return true
@@ -3660,7 +3691,7 @@ local CHAT_EVENTS = {
 }
 
 addon:SetScript("OnUpdate", function()
-    if HasAutomationAuthority() then
+    if IsManastormerAwake() and HasAutomationAuthority() then
         ProcessRaidLevelReport()
     else
         raidReportQueue = nil
@@ -3712,16 +3743,18 @@ addon:SetScript("OnEvent", function(self, event, ...)
                 .. " mode. Protected raid frames are untouched. Type /msm to show the panel."
         )
     elseif event == "PLAYER_LOGIN" then
-        Schedule(2, function() BroadcastVersion(true) end)
+        Schedule(2, function()
+            if IsManastormerAwake() then BroadcastVersion(true) end
+        end)
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, message, _, sender = ...
-        if prefix == VERSION_PREFIX then
+        if IsManastormerAwake() and prefix == VERSION_PREFIX then
             ReceiveVersion(message, sender)
         end
     elseif CHAT_EVENTS[event] then
         local message, author, _, channelName = ...
         local roles = event == "CHAT_MSG_WHISPER" and ParseWhisperRoles(message) or ParseRoles(message)
-        local activityAllowed = ManastormAutomationAllowed()
+        local activityAllowed = IsManastormerAwake() and ManastormAutomationAllowed()
         if event == "CHAT_MSG_WHISPER" and author and activityAllowed then
             local captured = CaptureWhisper(author, message, roles, "Whisper")
             if captured then
@@ -3762,7 +3795,9 @@ addon:SetScript("OnEvent", function(self, event, ...)
             RefreshWhisperPanel()
             RefreshChatScannerPanel()
         end)
-        Schedule(1, function() BroadcastVersion(false) end)
+        Schedule(1, function()
+            if IsManastormerAwake() then BroadcastVersion(false) end
+        end)
     elseif event == "LFG_UPDATE"
         or event == "LFG_QUEUE_STATUS_UPDATE"
         or event == "LFG_ROLE_CHECK_SHOW"
@@ -3772,8 +3807,10 @@ addon:SetScript("OnEvent", function(self, event, ...)
         or event == "LFG_PROPOSAL_FAILED"
     then
         Schedule(0.2, function()
-            UpdateActivityState(true)
-            Refresh()
+            if IsManastormerAwake() then
+                UpdateActivityState(true)
+                Refresh()
+            end
         end)
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         activeManastormLevel = 0
@@ -3783,10 +3820,12 @@ addon:SetScript("OnEvent", function(self, event, ...)
             UpdateKickButton()
         end
         Schedule(1, function()
-            UpdateActivityState(true)
             UpdateRosterDepartures()
-            CheckLevels()
-            Refresh()
+            if IsManastormerAwake() then
+                UpdateActivityState(true)
+                CheckLevels()
+                Refresh()
+            end
         end)
     elseif event == "PLAYER_REGEN_ENABLED" then
         if pendingPanelShown ~= nil then
@@ -3810,7 +3849,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
         end
         UpdateKickButton()
     elseif event == "READY_CHECK_FINISHED" then
-        if HasAutomationAuthority() then
+        if IsManastormerAwake() and HasAutomationAuthority() then
             FinishReadyCheckQueue()
         else
             readyCheckArmed = false
@@ -3820,7 +3859,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
         -- API documentation labels this as a number, which caused older builds
         -- to associate a ready response with the wrong player.
         local unitOrID, response = ...
-        if readyCheckArmed and unitOrID ~= nil then
+        if IsManastormerAwake() and readyCheckArmed and unitOrID ~= nil then
             local unit = unitOrID
             if type(unitOrID) == "number" then
                 unit = "raid" .. unitOrID
@@ -3835,27 +3874,29 @@ addon:SetScript("OnEvent", function(self, event, ...)
             Schedule(0.15, TryFinishReadyCheckEarly)
         end
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        TrackChaoticLink(...)
+        if IsManastormerAwake() then TrackChaoticLink(...) end
     elseif event == "ENTER_MANASTORM_RESULT" then
         local result = ...
         manastormEntryArmed = false
         if enterManastormButton then enterManastormButton:SetText("ENTER MANASTORM 1") end
-        if result and result ~= "ENTER_MANASTORM_OK" then
-            LocalWarning("Manastorm entry failed: " .. tostring(result))
-        else
-            Print("Manastorm entry confirmed: " .. tostring(result or "success"))
+        if IsManastormerAwake() then
+            if result and result ~= "ENTER_MANASTORM_OK" then
+                LocalWarning("Manastorm entry failed: " .. tostring(result))
+            else
+                Print("Manastorm entry confirmed: " .. tostring(result or "success"))
+            end
         end
     elseif event == "ACTIVE_MANASTORM_UPDATED" then
         local previousLevel, newLevel = ...
         previousLevel = tonumber(previousLevel)
         newLevel = tonumber(newLevel)
         activeManastormLevel = newLevel or 0
-        if newLevel and newLevel > 0 and previousLevel ~= newLevel then
+        if IsManastormerAwake() and newLevel and newLevel > 0 and previousLevel ~= newLevel then
             manastormEntryArmed = false
             if enterManastormButton then enterManastormButton:SetText("ENTER MANASTORM 1") end
             WarnWipeForLevel60(newLevel)
         end
-        if previousLevel == 0 and newLevel and newLevel >= 1 then
+        if IsManastormerAwake() and previousLevel == 0 and newLevel and newLevel >= 1 then
             AssignTankMarkers()
         end
     end

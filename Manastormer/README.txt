@@ -1,4 +1,4 @@
-MANASTORMER 2.8.13
+MANASTORMER 2.8.15
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,14 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Synchronises grouped-player role and Aura assignments between Manastormer
+  users. The raid leader supplies the full snapshot; leader/assistant changes
+  are shared immediately, and simultaneous requests are throttled.
+- Shows a green GUI confirmation naming the detected Manastormer raid leader,
+  or identifies you as the sync host when you lead the raid.
+- The raid leader posts one normal /raid reminder every two minutes while any
+  occupied subgroup has no assigned Aura. This never uses Raid Warning and
+  only one addon copy reports it.
 - Fully closing the main GUI now puts Manastormer to sleep: recruitment,
   role capture, capacity replies, level actions, markers, alerts and entry/
   ready state are ignored until the main GUI is reopened. Compact view stays active.
@@ -39,8 +47,9 @@ MAIN FEATURES
   fallback remains independently protected by Ascension.
 - Quietly exchanges version numbers with grouped Manastormer users and gives a
   local warning when a newer addon version is available.
-- Settings includes a 1-10 second Chaotic Link alert-interval slider to control
-  stack-warning spam. The critical 0-stack warning always fires immediately.
+- Settings includes a Chaotic Link reporting checkbox plus a 1-10 second
+  alert-interval slider. Turning reporting off suppresses every Chaotic Link
+  warning, including the critical 0-stack warning.
 - Includes a Settings page for flexible Total, Tank, Healer and Aura targets.
 - Calculates the DPS target from Total minus Tanks and Healers.
 - Tracks Aura as an overlapping role with its own configurable target.
@@ -86,7 +95,9 @@ MAIN FEATURES
   roles remain available through /msm tank PlayerName, /msm healer PlayerName,
   /msm dps PlayerName and /msm aura PlayerName.
 - Keeps the raid owner unassigned until a role is manually selected or detected.
-- Shows level 59 players and warns when a player reaches level 60.
+- Shows level 59 players and provides a secure, user-clicked kick button that
+  rechecks the player's current grouped level before appearing.
+- Warns when a player reaches level 60.
 - Provides a user-clicked secure kick button for level-60 players without making
   automatic UninviteUnit calls that can taint protected raid controls.
 - Warns three times to wipe if a level-60 player enters the next Manastorm.

@@ -18,7 +18,7 @@ Author: **Nesscafe**
 - Flexible raid-size, Tank, Healer and Aura requirements.
 - Recruitment whispers and a public LFG chat scanner with individual Invite buttons.
 - Automatic capacity replies when a whispered Tank, Healer, DPS or Aura role is already full, with per-player spam protection.
-- Automatically suspends recruitment and automation inside non-Manastorm instances, then resumes after leaving.
+- Automatically suspends recruitment and automation for Dungeon Finder queues/groups and inside non-Manastorm instances, then resumes afterward.
 - Automatic role detection from replies including Tank/Aura and Healer/Aura combinations.
 - Correct handling of replies such as `DPS no aura`, `healer no aura` and `without aura`.
 - Aura coverage warnings when an occupied raid subgroup has no Aura player.

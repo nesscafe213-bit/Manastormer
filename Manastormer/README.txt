@@ -1,4 +1,4 @@
-MANASTORMER 2.8.15
+MANASTORMER 2.8.16
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,9 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Load hotfix: consolidates internal helpers so Ascension's legacy Lua engine
+  stays safely below its 200-local-variable limit. This restores the GUI,
+  minimap button and /msm commands after the broken 2.8.15 build.
 - Synchronises grouped-player role and Aura assignments between Manastormer
   users. The raid leader supplies the full snapshot; leader/assistant changes
   are shared immediately, and simultaneous requests are throttled.

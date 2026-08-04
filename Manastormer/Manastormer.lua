@@ -84,6 +84,7 @@ local RefreshSettingsPage
 local newerVersionAvailable
 local warnedVersion
 local lastVersionBroadcast = 0
+local whisperCapacityReplies = {}
 
 local function Trim(text)
     return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -1040,6 +1041,71 @@ local function PostRecruitmentMessage()
     end
     SendChatMessage(message, "CHANNEL", nil, channel)
     Print("Posted to " .. RecruitmentChannelText() .. ": " .. message)
+end
+
+local function MaybeReplyRoleCapacity(author, roles)
+    if not author or not roles or IsSelf(author) or IsGrouped(author) then
+        return
+    end
+    if not sessionActive or not HasAutomationAuthority() then
+        return
+    end
+
+    local counts = RoleCounts()
+    local groupSize = GroupSize()
+    local filledTankSlots = math.min(counts.tank, ROLE_TARGET.tank)
+    local filledHealerSlots = math.min(counts.healer, ROLE_TARGET.healer)
+    local assignedGroupSize = groupSize - (SelfHasMainRole() and 0 or 1)
+    local dpsCount = math.max(0, assignedGroupSize - filledTankSlots - filledHealerSlots)
+    local capacity = {
+        tank = counts.tank < ROLE_TARGET.tank,
+        healer = counts.healer < ROLE_TARGET.healer,
+        dps = dpsCount < DPSTarget(),
+        aura = counts.aura < ROLE_TARGET.aura,
+    }
+    local labels = { tank = "Tank", healer = "Healer", dps = "DPS", aura = "Aura" }
+    local order = { "tank", "healer", "dps", "aura" }
+    local full = {}
+    local needed = {}
+    local _, role
+    for _, role in ipairs(order) do
+        if roles[role] then
+            if groupSize >= MAX_PLAYERS or not capacity[role] then
+                table.insert(full, labels[role])
+            else
+                table.insert(needed, labels[role])
+            end
+        end
+    end
+    if #full == 0 then
+        return
+    end
+
+    local reply
+    if groupSize >= MAX_PLAYERS then
+        reply = "[Manastormer] Thanks, but the raid is currently full ("
+            .. groupSize .. "/" .. MAX_PLAYERS .. ")."
+    elseif #needed > 0 then
+        reply = "[Manastormer] Thanks! We are currently full on "
+            .. table.concat(full, "/") .. ", but still need "
+            .. table.concat(needed, "/") .. "."
+    else
+        reply = "[Manastormer] Thanks! We are currently full on "
+            .. table.concat(full, "/") .. "."
+    end
+
+    local key = NameKey(author)
+    local previous = whisperCapacityReplies[key]
+    local now = GetTime()
+    if previous and previous.reply == reply and now - previous.at < 120 then
+        return
+    end
+    if previous and now - previous.at < 30 then
+        return
+    end
+    whisperCapacityReplies[key] = { reply = reply, at = now }
+    SendChatMessage(reply, "WHISPER", nil, author)
+    Print("Capacity reply sent to " .. ShortName(author) .. ": " .. reply)
 end
 
 local function TrackChaoticLink(...)
@@ -2832,6 +2898,7 @@ local function CaptureWhisper(author, message, roles, source)
     while #db.whispers > 50 do table.remove(db.whispers, 1) end
     whisperScrollOffset = 0
     RefreshWhisperPanel()
+    return true
 end
 
 local function NormalizeRecruitmentMessage(message)
@@ -3214,7 +3281,7 @@ local function CreatePanel()
             Print("Signup listening paused.")
         end
         Refresh()
-    end, "Listen for Roles", "Starts or pauses automatic role detection from chat. Understands role numbers and phrases such as 'healer aura'.", "blue")
+    end, "Listen for Roles", "Starts or pauses automatic role detection from chat. While listening, leader/assist also replies when a whispered role is already full. Understands role numbers and phrases such as 'healer aura'.", "blue")
     listenButton:SetPoint("TOPLEFT", 10, -149)
 
     local askButton = MakeButton(panel, "ROLE CHECK /RW", 120, function()
@@ -3434,7 +3501,10 @@ addon:SetScript("OnEvent", function(self, event, ...)
         local message, author, _, channelName = ...
         local roles = event == "CHAT_MSG_WHISPER" and ParseWhisperRoles(message) or ParseRoles(message)
         if event == "CHAT_MSG_WHISPER" and author then
-            CaptureWhisper(author, message, roles, "Whisper")
+            local captured = CaptureWhisper(author, message, roles, "Whisper")
+            if captured then
+                MaybeReplyRoleCapacity(author, roles)
+            end
         elseif whisperPanel and whisperPanel:IsShown() and author then
             local recruitmentRoles = ParseWhisperRoles(message)
             if IsLFGManastormPost(message, recruitmentRoles) then

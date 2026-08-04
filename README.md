@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.12**  
+Current release: **v2.8.13**  
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.12.zip`.
+2. Download `Manastormer-2.8.13.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -40,6 +40,7 @@ backs up the existing addon, installs the update and verifies the version.
 - Ready checks, level-and-role raid reports and Tank raid markers.
 - Chaotic Link stack tracking with a configurable notification interval.
 - Compact combat view and minimap launcher.
+- Fully closing the main GUI sleeps all Manastorm recruitment and automation until reopened; compact mode remains active.
 - Quiet version checks between grouped Manastormer users.
 - Compatible with both ElvUI and Ascension's native WoW interface without modifying protected raid frames.
 

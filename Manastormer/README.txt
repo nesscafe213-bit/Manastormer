@@ -1,4 +1,4 @@
-MANASTORMER 2.8.9
+MANASTORMER 2.8.10
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,8 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Aura recruitment whispers have an animated gold sparkling border so priority
+  Aura applicants stand out immediately.
 - Automatically suspends recruitment capture, chat scanning, capacity replies
   and raid automation for Dungeon Finder queues/groups and inside non-Manastorm
   instances, then resumes afterward.

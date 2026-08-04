@@ -1,4 +1,4 @@
-MANASTORMER 2.8.8
+MANASTORMER 2.8.9
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,8 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Automatically suspends recruitment capture, chat scanning, capacity replies
+  and raid automation inside non-Manastorm instances, then resumes after leaving.
 - Compatible with both ElvUI and Ascension's native WoW interface. Manastormer
   detects the active interface but never hooks, hides or modifies its protected
   raid frames or unit-popup menus.

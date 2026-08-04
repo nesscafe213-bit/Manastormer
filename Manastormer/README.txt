@@ -1,4 +1,4 @@
-MANASTORMER 2.8.10
+MANASTORMER 2.8.11
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,8 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Hotfix: Aura sparkle borders are attached to Recruitment Whisper rows and
+  refresh safely when older UI rows are present.
 - Aura recruitment whispers have an animated gold sparkling border so priority
   Aura applicants stand out immediately.
 - Automatically suspends recruitment capture, chat scanning, capacity replies

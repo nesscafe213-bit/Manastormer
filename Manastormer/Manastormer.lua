@@ -2098,6 +2098,7 @@ local function WhisperHighlight(roles)
 end
 
 local function SetRegionShown(region, shown)
+    if not region then return end
     if shown then region:Show() else region:Hide() end
 end
 
@@ -2632,7 +2633,6 @@ local function CreateChatScannerPanel(parent)
         row.invite:SetText("INVITE")
         local rowRef = row
         row.invite:SetScript("OnClick", function() InviteWhisperPlayer(rowRef.data) end)
-        row.auraSparkleBorder = CreateAuraSparkleBorder(row)
         row:Hide()
         chatScannerRows[index] = row
     end
@@ -2841,6 +2841,7 @@ local function CreateWhisperPanel()
         row.invite:SetText("INVITE")
         local rowRef = row
         row.invite:SetScript("OnClick", function() InviteWhisperPlayer(rowRef.data) end)
+        row.auraSparkleBorder = CreateAuraSparkleBorder(row)
         row:Hide()
         whisperRows[index] = row
     end

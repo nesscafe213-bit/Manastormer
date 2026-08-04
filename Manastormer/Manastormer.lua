@@ -2218,6 +2218,61 @@ local function LayoutWhisperRoleIcons(row, roles)
     end
 end
 
+local function CreateAuraSparkleBorder(row)
+    local border = CreateFrame("Frame", nil, row)
+    border:SetAllPoints(row)
+    border:SetFrameLevel(row:GetFrameLevel() + 3)
+    border:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 2,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    border:SetBackdropColor(0, 0, 0, 0)
+    border:SetBackdropBorderColor(1, 0.72, 0.08, 0.95)
+    border.sparkles = {}
+
+    local sparklePoints = {
+        { "TOPLEFT", 8, -1 }, { "TOPLEFT", 82, -1 },
+        { "TOP", -150, -1 }, { "TOP", 0, -1 }, { "TOP", 150, -1 },
+        { "TOPRIGHT", -82, -1 }, { "TOPRIGHT", -8, -1 },
+        { "BOTTOMLEFT", 8, 1 }, { "BOTTOMLEFT", 82, 1 },
+        { "BOTTOM", -150, 1 }, { "BOTTOM", 0, 1 }, { "BOTTOM", 150, 1 },
+        { "BOTTOMRIGHT", -82, 1 }, { "BOTTOMRIGHT", -8, 1 },
+        { "LEFT", 1, 0 }, { "RIGHT", -1, 0 },
+    }
+    local index, pointInfo
+    for index, pointInfo in ipairs(sparklePoints) do
+        local sparkle = border:CreateTexture(nil, "OVERLAY")
+        local size = index % 3 == 0 and 6 or 4
+        sparkle:SetTexture("Interface\\Buttons\\WHITE8X8")
+        sparkle:SetBlendMode("ADD")
+        sparkle:SetWidth(size)
+        sparkle:SetHeight(size)
+        sparkle:SetPoint(pointInfo[1], border, pointInfo[1], pointInfo[2], pointInfo[3])
+        sparkle:SetVertexColor(1, 0.82, 0.20, 0.9)
+        border.sparkles[index] = sparkle
+    end
+
+    border.elapsed = 0
+    border:SetScript("OnUpdate", function(self, elapsed)
+        self.elapsed = self.elapsed + elapsed
+        if self.elapsed < 0.04 then return end
+        self.elapsed = 0
+        local now = GetTime()
+        local sparkleIndex, sparkle
+        for sparkleIndex, sparkle in ipairs(self.sparkles) do
+            local wave = (math.sin((now * 4.2) + (sparkleIndex * 1.73)) + 1) * 0.5
+            local alpha = 0.12 + (wave * wave * 0.88)
+            sparkle:SetVertexColor(1, 0.72 + (wave * 0.20), 0.10, alpha)
+        end
+        local borderPulse = 0.72 + (((math.sin(now * 2.8) + 1) * 0.5) * 0.28)
+        self:SetBackdropBorderColor(1, 0.65 + (borderPulse * 0.15), 0.08, borderPulse)
+    end)
+    border:Hide()
+    return border
+end
+
 local function InviteWhisperPlayer(entry)
     if not entry or not entry.name then return end
     if IsBlocked60(entry.name) then
@@ -2274,6 +2329,7 @@ RefreshWhisperPanel = function()
             SetRegionShown(row.roleIcons.healer, roles.healer and true or false)
             SetRegionShown(row.roleIcons.dps, roles.dps and true or false)
             SetRegionShown(row.aura, roles.aura and true or false)
+            SetRegionShown(row.auraSparkleBorder, roles.aura and true or false)
             if roles.aura then row.aura:SetTexture(ResolveAuraIconTexture()) end
             SetRegionShown(row.unassigned, not roles.tank and not roles.healer and not roles.dps and not roles.aura)
             LayoutWhisperRoleIcons(row, roles)
@@ -2295,6 +2351,7 @@ RefreshWhisperPanel = function()
             row.roleIcons.healer:Hide()
             row.roleIcons.dps:Hide()
             row.aura:Hide()
+            row.auraSparkleBorder:Hide()
             row.unassigned:Hide()
             row:Hide()
         end
@@ -2575,6 +2632,7 @@ local function CreateChatScannerPanel(parent)
         row.invite:SetText("INVITE")
         local rowRef = row
         row.invite:SetScript("OnClick", function() InviteWhisperPlayer(rowRef.data) end)
+        row.auraSparkleBorder = CreateAuraSparkleBorder(row)
         row:Hide()
         chatScannerRows[index] = row
     end

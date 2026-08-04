@@ -50,9 +50,11 @@ local settingsSummaryText
 local settingsChannelLabel
 local settingsChaoticSlider
 local settingsChaoticLabel
+local settingsChaoticCheck
 local activePage = "raid"
 local compactText
 local kick60Button
+local kick59Button
 local roleBoxes = {}
 local fullUIElements = {}
 local sessionActive = false
@@ -66,6 +68,7 @@ local chaoticLinkLastAnnouncedStack = {}
 local chaoticLinkBrokenAt = {}
 local raidReportQueue
 local pendingLevel60Kicks = {}
+local pendingLevel59Kicks = {}
 local previousRosterNames
 local recentDepartures = {}
 local lastWipeWarningKey
@@ -77,6 +80,7 @@ local delayed = {}
 local Refresh
 local SetMinimized
 local UpdateKickButton
+local UpdateKick59Button
 local PositionKickButton
 local RefreshWhisperPanel
 local RefreshChatScannerPanel
@@ -86,6 +90,14 @@ local warnedVersion
 local lastVersionBroadcast = 0
 local whisperCapacityReplies = {}
 local lastActivityAllowed
+local lastAuraCoverageNotice = 0
+local nextAuraCoverageCheck = 0
+local roleSyncSnapshots = {}
+local lastRoleSyncRequest = 0
+local lastRoleSyncSnapshot = 0
+local addonUsers = {}
+local BroadcastSignup
+local BroadcastSignupDelete
 
 local function Trim(text)
     return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -138,6 +150,9 @@ local function ApplyRequirements()
     if not db then return end
     db.requirements = db.requirements or { total = 15, tank = 2, healer = 3, aura = 3 }
     db.chaoticLinkInterval = Clamp(db.chaoticLinkInterval or 4, 1, 10)
+    if db.chaoticLinkReporting == nil then
+        db.chaoticLinkReporting = true
+    end
     local requirements = db.requirements
     requirements.total = Clamp(requirements.total, 1, 15)
     requirements.tank = Clamp(requirements.tank, 0, requirements.total)
@@ -271,8 +286,12 @@ local function UpdateActivityState(announce)
         readyCheckArmed = false
         manastormEntryArmed = false
         pendingLevel60Kicks = {}
+        pendingLevel59Kicks = {}
         if UpdateKickButton then
             UpdateKickButton()
+        end
+        if UpdateKick59Button then
+            UpdateKick59Button()
         end
     end
     lastActivityAllowed = allowed
@@ -667,6 +686,21 @@ local function BroadcastVersion(force)
     )
 end
 
+local function SendGroupAddonMessage(message)
+    if not IsManastormerAwake()
+        or type(SendAddonMessage) ~= "function"
+        or (not InRaid() and not InParty())
+    then
+        return false
+    end
+    return pcall(
+        SendAddonMessage,
+        VERSION_PREFIX,
+        message,
+        InRaid() and "RAID" or "PARTY"
+    )
+end
+
 local function ReceiveVersion(message, sender)
     if not message or IsSelf(sender) then
         return
@@ -747,6 +781,28 @@ local function AuraCoverage()
     return #missingGroups == 0, missingGroups
 end
 
+local function MaybeNotifyMissingAuraGroups()
+    if not IsManastormerAwake()
+        or not InRaid()
+        or not IsRaidLeader()
+        or not ManastormAutomationAllowed()
+    then
+        return
+    end
+    local now = GetTime()
+    if now < nextAuraCoverageCheck then return end
+    nextAuraCoverageCheck = now + 5
+    local covered, missingGroups = AuraCoverage()
+    if covered then return end
+    if now - lastAuraCoverageNotice < 120 then return end
+    lastAuraCoverageNotice = now
+    SendChatMessage(
+        "[Manastormer] No Aura assigned to occupied Group(s): "
+            .. table.concat(missingGroups, ", ") .. ".",
+        "RAID"
+    )
+end
+
 local function FindRaidIndex(name)
     local index
     for index = 1, GetNumRaidMembers() do
@@ -756,6 +812,191 @@ local function FindRaidIndex(name)
         end
     end
     return nil
+end
+
+
+local function SenderIsGroupLeader(name)
+    if not name then return false end
+    if InRaid() then
+        local index = FindRaidIndex(name)
+        if not index then return false end
+        local _, rank = GetRaidRosterInfo(index)
+        return rank == 2
+    end
+    if SameName(name, UnitFullName("player")) then
+        return UnitIsPartyLeader("player")
+    end
+    local index
+    for index = 1, GetNumPartyMembers() do
+        local unit = "party" .. index
+        if SameName(name, UnitFullName(unit)) then
+            return UnitIsPartyLeader(unit)
+        end
+    end
+    return false
+end
+
+local function GroupLeaderName()
+    local _, member
+    for _, member in ipairs(GetRoster()) do
+        if member.rank == 2 then return member.name end
+    end
+    if InParty() then
+        if UnitIsPartyLeader("player") then return UnitFullName("player") end
+        local index
+        for index = 1, GetNumPartyMembers() do
+            local unit = "party" .. index
+            if UnitIsPartyLeader(unit) then return UnitFullName(unit) end
+        end
+    end
+    return nil
+end
+
+local function SyncStatusLine()
+    if not InRaid() and not InParty() then
+        return "|cff888888SYNC: waiting for a group|r"
+    end
+    local leader = GroupLeaderName()
+    if not leader then return "|cff888888SYNC: finding group leader|r" end
+    if IsSelf(leader) then
+        return "|cff55ff88SYNC HOST: You are sharing roles as raid leader|r"
+    end
+    local user = addonUsers[NameKey(leader)]
+    if user and GetTime() - user.seen <= 300 then
+        return "|cff55ff88SYNCED: Raid leader " .. ShortName(leader) .. " is sharing roles|r"
+    end
+    return "|cffffcc55SYNC: Waiting for raid leader " .. ShortName(leader) .. "'s addon|r"
+end
+
+local function RoleFlags(roles)
+    local flags = ""
+    if roles and roles.tank then flags = flags .. "1" end
+    if roles and roles.healer then flags = flags .. "2" end
+    if roles and roles.aura then flags = flags .. "3" end
+    if roles and roles.dps then flags = flags .. "4" end
+    return flags
+end
+
+local function RolesFromFlags(flags)
+    local roles = {}
+    for flag in tostring(flags or ""):gmatch(".") do
+        if flag == "1" then roles.tank = true
+        elseif flag == "2" then roles.healer = true
+        elseif flag == "3" then roles.aura = true
+        elseif flag == "4" then roles.dps = true
+        end
+    end
+    return next(roles) and roles or nil
+end
+
+BroadcastSignup = function(signup)
+    if not signup or not signup.name or not signup.roles or not HasAutomationAuthority() then return end
+    if not IsGrouped(signup.name) then return end
+    local safeName = tostring(signup.name):gsub("|", "")
+    SendGroupAddonMessage(
+        "S|" .. safeName .. "|" .. RoleFlags(signup.roles)
+            .. "|" .. tostring(tonumber(signup.updated) or time())
+    )
+end
+
+BroadcastSignupDelete = function(name)
+    if not name or not HasAutomationAuthority() or not IsGrouped(name) then return end
+    SendGroupAddonMessage("D|" .. tostring(name):gsub("|", "") .. "|" .. tostring(time()))
+end
+
+local function SendRoleSyncSnapshot()
+    if not IsRaidLeader() and not (InParty() and UnitIsPartyLeader("player")) then return end
+    local now = GetTime()
+    if now - lastRoleSyncSnapshot < 2 then return end
+    lastRoleSyncSnapshot = now
+    local stamp = tostring(time())
+    SendGroupAddonMessage("B|" .. stamp)
+    local _, signup
+    for _, signup in ipairs(db.signups) do
+        if IsSelf(signup.name) or IsGrouped(signup.name) then
+            BroadcastSignup(signup)
+        end
+    end
+    SendGroupAddonMessage("E|" .. stamp)
+end
+
+local function RequestRoleSync(force)
+    if not IsManastormerAwake() or (not InRaid() and not InParty()) then return end
+    local now = GetTime()
+    if not force and now - lastRoleSyncRequest < 10 then return end
+    lastRoleSyncRequest = now
+    SendGroupAddonMessage("Q")
+end
+
+local function ReceiveRoleSync(message, sender)
+    if not IsManastormerAwake()
+        or not ManastormAutomationAllowed()
+        or not sender
+        or IsSelf(sender)
+        or not IsGrouped(sender)
+    then
+        return false
+    end
+    if message == "Q" then
+        SendRoleSyncSnapshot()
+        return true
+    end
+
+    local kind, name, value, updated = tostring(message or ""):match("^([S])|([^|]+)|([^|]*)|(%d+)$")
+    if kind == "S" then
+        if not IsGrouped(name) then return true end
+        local roles = RolesFromFlags(value)
+        if not roles then return true end
+        updated = tonumber(updated) or 0
+        local snapshot = roleSyncSnapshots[NameKey(sender)]
+        local signup = FindSignup(name)
+        if not signup then
+            db.nextOrder = (db.nextOrder or 0) + 1
+            signup = { name = name, roles = roles, order = db.nextOrder, updated = updated }
+            table.insert(db.signups, signup)
+        elseif snapshot or updated >= (tonumber(signup.updated) or 0) then
+            signup.roles = roles
+            signup.updated = updated
+        end
+        if snapshot then snapshot.seen[NameKey(name)] = true end
+        Refresh()
+        return true
+    end
+
+    local deleteName = tostring(message or ""):match("^D|([^|]+)|%d+$")
+    if deleteName then
+        local index
+        for index = #db.signups, 1, -1 do
+            if SameName(db.signups[index].name, deleteName) then
+                table.remove(db.signups, index)
+            end
+        end
+        Refresh()
+        return true
+    end
+
+    local beginStamp = tostring(message or ""):match("^B|(%d+)$")
+    if beginStamp and SenderIsGroupLeader(sender) then
+        roleSyncSnapshots[NameKey(sender)] = { stamp = beginStamp, seen = {} }
+        return true
+    end
+    local endStamp = tostring(message or ""):match("^E|(%d+)$")
+    local snapshot = roleSyncSnapshots[NameKey(sender)]
+    if endStamp and snapshot and snapshot.stamp == endStamp and SenderIsGroupLeader(sender) then
+        local index
+        for index = #db.signups, 1, -1 do
+            local signup = db.signups[index]
+            if (IsSelf(signup.name) or IsGrouped(signup.name))
+                and not snapshot.seen[NameKey(signup.name)]
+            then
+                table.remove(db.signups, index)
+            end
+        end
+        roleSyncSnapshots[NameKey(sender)] = nil
+        Refresh()
+        return true
+    end
+    return false
 end
 
 local function PlayerReportRole(name)
@@ -1235,7 +1476,11 @@ local function MaybeReplyRoleCapacity(author, roles)
 end
 
 local function TrackChaoticLink(...)
-    if not IsManastormerAwake() or not HasAutomationAuthority() or not IsInsideManastorm() then
+    if not IsManastormerAwake()
+        or not HasAutomationAuthority()
+        or not IsInsideManastorm()
+        or (db and db.chaoticLinkReporting == false)
+    then
         return
     end
     local _, combatEvent, _, _, _, destGUID, destName, _, spellID, _, _, _, amount = ...
@@ -1294,23 +1539,36 @@ local function AddSignup(name, roles)
         Print(ShortName(name) .. " updated: " .. RoleText(roles))
     else
         db.nextOrder = (db.nextOrder or 0) + 1
-        table.insert(db.signups, {
+        signup = {
             name = name,
             roles = roles,
             order = db.nextOrder,
             updated = time(),
-        })
+        }
+        table.insert(db.signups, signup)
         Print(ShortName(name) .. " signed: " .. RoleText(roles))
     end
+    BroadcastSignup(signup)
 end
 
 local function RemoveSignup(name)
+    local removed = false
     local index
     for index = #db.signups, 1, -1 do
         if SameName(db.signups[index].name, name) then
             table.remove(db.signups, index)
+            removed = true
         end
     end
+    if removed then BroadcastSignupDelete(name) end
+end
+
+local function ClearAllSignups()
+    local _, signup
+    for _, signup in ipairs(db.signups) do
+        BroadcastSignupDelete(signup.name)
+    end
+    db.signups = {}
 end
 
 local function ToggleManualRole(name, role)
@@ -1340,6 +1598,7 @@ local function ToggleManualRole(name, role)
         Print(ShortName(name) .. " has no Mana Storm role.")
     else
         Print(ShortName(name) .. " manually set: " .. RoleText(signup.roles))
+        BroadcastSignup(signup)
     end
     Refresh()
 end
@@ -1348,7 +1607,7 @@ local function CurrentLevel60Members()
     local players = {}
     local _, member
     for _, member in ipairs(GetRoster()) do
-        local level = member.unit and UnitLevel(member.unit) or member.level
+        local level = VerifiedMemberLevel(member)
         if not IsSelf(member.name) and level and level >= 60 then
             table.insert(players, member.name)
         end
@@ -1363,7 +1622,7 @@ end
 -- Parenting or anchoring it to the panel causes Ascension to protect the whole
 -- panel, which prevents compact/full layout changes during combat.
 PositionKickButton = function()
-    if not kick60Button or not panel then
+    if not kick60Button or not kick59Button or not panel then
         return
     end
     if InCombatLockdown and InCombatLockdown() then
@@ -1382,6 +1641,24 @@ PositionKickButton = function()
         left + 10,
         top - (db and db.minimized and 112 or 387)
     )
+    kick59Button:ClearAllPoints()
+    kick59Button:SetPoint(
+        "TOPLEFT",
+        UIParent,
+        "BOTTOMLEFT",
+        left + 10,
+        top - (db and db.minimized and 144 or 419)
+    )
+end
+
+local function LiveGroupedLevel(name)
+    local _, member
+    for _, member in ipairs(GetRoster()) do
+        if SameName(member.name, name) then
+            return VerifiedMemberLevel(member), member.name
+        end
+    end
+    return nil, nil
 end
 
 UpdateKickButton = function()
@@ -1391,14 +1668,7 @@ UpdateKickButton = function()
     local kickName
     local name
     for name in pairs(pendingLevel60Kicks) do
-        local liveLevel
-        local _, member
-        for _, member in ipairs(GetRoster()) do
-            if SameName(member.name, name) then
-                liveLevel = VerifiedMemberLevel(member)
-                break
-            end
-        end
+        local liveLevel = LiveGroupedLevel(name)
         if liveLevel and liveLevel >= 60 then
             kickName = name
             break
@@ -1429,10 +1699,39 @@ UpdateKickButton = function()
         kick60Button:SetText("KICK LEVEL 60: " .. ShortName(kickName))
         kick60Button:Enable()
         kick60Button:SetAttribute("type", "macro")
-        kick60Button:SetAttribute("macrotext", "/uninvite " .. ShortName(kickName))
+        kick60Button:SetAttribute("macrotext", "/uninvite " .. kickName)
     end
     PositionKickButton()
     kick60Button:Show()
+end
+
+UpdateKick59Button = function()
+    if not kick59Button then return end
+    local kickName
+    local name
+    for name in pairs(pendingLevel59Kicks) do
+        local liveLevel, liveName = LiveGroupedLevel(name)
+        if liveLevel == 59 and liveName and not IsSelf(liveName) then
+            kickName = liveName
+            break
+        else
+            pendingLevel59Kicks[name] = nil
+        end
+    end
+
+    local inCombat = InCombatLockdown and InCombatLockdown()
+    if not IsManastormerAwake() or not HasAutomationAuthority() or not kickName then
+        if not inCombat then kick59Button:Hide() end
+        return
+    end
+    if inCombat then return end
+
+    kick59Button:SetText("KICK LEVEL 59: " .. ShortName(kickName))
+    kick59Button:Enable()
+    kick59Button:SetAttribute("type", "macro")
+    kick59Button:SetAttribute("macrotext", "/uninvite " .. kickName)
+    PositionKickButton()
+    kick59Button:Show()
 end
 
 local function AttemptLevel60Kick(name)
@@ -1498,7 +1797,13 @@ local function UpdateRosterDepartures()
             pendingLevel60Kicks[pendingName] = nil
         end
     end
+    for pendingName in pairs(pendingLevel59Kicks) do
+        if not IsGrouped(pendingName) then
+            pendingLevel59Kicks[pendingName] = nil
+        end
+    end
     UpdateKickButton()
+    UpdateKick59Button()
 end
 
 local function WarnWipeForLevel60(newLevel)
@@ -1555,6 +1860,15 @@ local function CheckLevels()
     for _, member in ipairs(GetRoster()) do
         local level = VerifiedMemberLevel(member)
         local signup = FindSignup(member.name)
+        local pending59Name
+        for pending59Name in pairs(pendingLevel59Kicks) do
+            if SameName(pending59Name, member.name) and level ~= 59 then
+                pendingLevel59Kicks[pending59Name] = nil
+            end
+        end
+        if level == 59 and not IsSelf(member.name) then
+            pendingLevel59Kicks[member.name] = true
+        end
         if level and level > 0 and level < 60 then
             ClearLevel60Record(member.name, member.unit)
         end
@@ -1577,6 +1891,7 @@ local function CheckLevels()
             end
         end
     end
+    UpdateKick59Button()
 end
 
 local function SetRoleBox(role, count, names)
@@ -1680,6 +1995,8 @@ Refresh = function()
             )
         end
 
+        table.insert(compactLines, SyncStatusLine())
+
         if #level59Players > 0 then
             table.insert(compactLines, "|cffffaa33Level 59:|r " .. table.concat(level59Players, ", "))
         end
@@ -1741,15 +2058,15 @@ Refresh = function()
     local auraNeeded = math.max(0, ROLE_TARGET.aura - counts.aura)
     local needs = tankNeeded .. "T " .. healerNeeded .. "H "
         .. dpsNeeded .. "D " .. auraNeeded .. "A"
+    local compositionLine
     if tankNeeded == 0 and healerNeeded == 0 and dpsNeeded == 0 and auraNeeded == 0 then
-        statusText:SetText(state .. "  " .. groupSize .. "/" .. MAX_PLAYERS
-            .. "  DPS " .. dpsCount .. "/" .. dpsTarget .. "  |cff55ff66READY|r")
+        compositionLine = state .. "  " .. groupSize .. "/" .. MAX_PLAYERS
+            .. "  DPS " .. dpsCount .. "/" .. dpsTarget .. "  |cff55ff66READY|r"
     else
-        statusText:SetText(
-            state .. "  " .. groupSize .. "/" .. MAX_PLAYERS
-                .. "  DPS " .. dpsCount .. "/" .. dpsTarget .. "  |cffff6666NEED " .. needs .. "|r"
-        )
+        compositionLine = state .. "  " .. groupSize .. "/" .. MAX_PLAYERS
+            .. "  DPS " .. dpsCount .. "/" .. dpsTarget .. "  |cffff6666NEED " .. needs .. "|r"
     end
+    statusText:SetText(compositionLine .. "\n" .. SyncStatusLine())
     listenButton:SetText(not hasAuthority and "Silent" or (sessionActive and "Pause" or "Listen"))
 end
 
@@ -1957,6 +2274,13 @@ RefreshSettingsPage = function()
     if settingsChaoticLabel then
         settingsChaoticLabel:SetText(tostring(db.chaoticLinkInterval or 4) .. " sec")
     end
+    if settingsChaoticCheck then
+        local reporting = db.chaoticLinkReporting ~= false
+        settingsChaoticCheck:SetChecked(reporting)
+        settingsChaoticSlider:SetAlpha(reporting and 1 or 0.4)
+        settingsChaoticLabel:SetAlpha(reporting and 1 or 0.4)
+        if reporting then settingsChaoticSlider:Enable() else settingsChaoticSlider:Disable() end
+    end
     if recruitmentButton then
         recruitmentButton:SetText("POST LFM TO " .. RecruitmentChannelText())
     end
@@ -2110,7 +2434,31 @@ local function CreateSettingsUI(parent)
     chaoticTitle:SetFont(FONT_BODY, 11, "")
     chaoticTitle:SetTextColor(unpack(UI_COLORS.text))
     chaoticTitle:SetPoint("LEFT", 12, 0)
-    chaoticTitle:SetText("Chaotic Link alert interval")
+    chaoticTitle:SetText("Chaotic Link")
+
+    settingsChaoticCheck = CreateFrame("CheckButton", nil, chaoticRow, "UICheckButtonTemplate")
+    settingsChaoticCheck:SetWidth(24)
+    settingsChaoticCheck:SetHeight(24)
+    settingsChaoticCheck:SetPoint("LEFT", 92, 0)
+    settingsChaoticCheck:SetChecked(db.chaoticLinkReporting ~= false)
+    local chaoticCheckLabel = chaoticRow:CreateFontString(nil, "OVERLAY")
+    chaoticCheckLabel:SetFont(FONT_BODY, 9, "")
+    chaoticCheckLabel:SetTextColor(unpack(UI_COLORS.gold))
+    chaoticCheckLabel:SetPoint("LEFT", settingsChaoticCheck, "RIGHT", -1, 0)
+    chaoticCheckLabel:SetText("Report")
+    AttachTooltip(
+        settingsChaoticCheck,
+        "Report Chaotic Link",
+        "When unchecked, Manastormer sends no Chaotic Link raid warnings, including the 0-stack LINK BROKEN warning."
+    )
+    settingsChaoticCheck:SetScript("OnClick", function(self)
+        db.chaoticLinkReporting = self:GetChecked() and true or false
+        chaoticLinkStacks = {}
+        chaoticLinkLastWarning = {}
+        chaoticLinkLastAnnouncedStack = {}
+        chaoticLinkBrokenAt = {}
+        RefreshSettingsPage()
+    end)
 
     settingsChaoticLabel = chaoticRow:CreateFontString(nil, "OVERLAY")
     settingsChaoticLabel:SetFont(FONT_BODY, 10, "")
@@ -2125,7 +2473,7 @@ local function CreateSettingsUI(parent)
         chaoticRow,
         "OptionsSliderTemplate"
     )
-    settingsChaoticSlider:SetWidth(125)
+    settingsChaoticSlider:SetWidth(102)
     settingsChaoticSlider:SetHeight(16)
     settingsChaoticSlider:SetPoint("RIGHT", settingsChaoticLabel, "LEFT", -8, 0)
     settingsChaoticSlider:SetMinMaxValues(1, 10)
@@ -3221,6 +3569,7 @@ SetMinimized = function(minimized)
     end
     PositionKickButton()
     UpdateKickButton()
+    UpdateKick59Button()
 end
 
 local function SetPanelShown(shown)
@@ -3237,11 +3586,20 @@ local function SetPanelShown(shown)
         UpdateRosterDepartures()
         CheckLevels()
         Refresh()
+        Schedule(0.5, function()
+            BroadcastVersion(true)
+            if IsRaidLeader() or (InParty() and UnitIsPartyLeader("player")) then
+                SendRoleSyncSnapshot()
+            else
+                RequestRoleSync(true)
+            end
+        end)
     else
         raidReportQueue = nil
         readyCheckArmed = false
         manastormEntryArmed = false
         pendingLevel60Kicks = {}
+        pendingLevel59Kicks = {}
         chaoticLinkStacks = {}
         chaoticLinkLastWarning = {}
         chaoticLinkLastAnnouncedStack = {}
@@ -3249,6 +3607,7 @@ local function SetPanelShown(shown)
         if whisperPanel then whisperPanel:Hide() end
         if enterManastormButton then enterManastormButton:SetText("ENTER MANASTORM 1") end
         UpdateKickButton()
+        UpdateKick59Button()
         panel:Hide()
     end
     return true
@@ -3605,7 +3964,7 @@ local function CreatePanel()
     TrackFullUI(level59Hover)
 
     local clearButton = MakeButton(panel, "Clear Roles", 100, function()
-        db.signups = {}
+        ClearAllSignups()
         db.nextOrder = 0
         warningSeen = {}
         Print("Role signups cleared.")
@@ -3623,7 +3982,9 @@ local function CreatePanel()
     statusText:SetTextColor(unpack(UI_COLORS.text))
     statusText:SetPoint("TOPLEFT", 12, -289)
     statusText:SetPoint("TOPRIGHT", -12, -289)
+    statusText:SetHeight(26)
     statusText:SetJustifyH("CENTER")
+    statusText:SetJustifyV("TOP")
     TrackFullUI(statusText)
     local statusHover = CreateFrame("Frame", nil, panel)
     statusHover:SetPoint("TOPLEFT", 10, -283)
@@ -3666,6 +4027,26 @@ local function CreatePanel()
     end)
     kick60Button:Hide()
 
+    kick59Button = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+    kick59Button:SetWidth(390)
+    kick59Button:SetHeight(28)
+    StyleButton(
+        kick59Button,
+        "red",
+        "Remove Level 59 Player",
+        "Removes the displayed live level-59 player from the group. The button rechecks the current roster level before it appears."
+    )
+    kick59Button:SetText("KICK LEVEL 59")
+    kick59Button:SetScript("PostClick", function()
+        Schedule(1, function()
+            UpdateRosterDepartures()
+            UpdateKickButton()
+            UpdateKick59Button()
+            Refresh()
+        end)
+    end)
+    kick59Button:Hide()
+
     CreateSettingsUI(panel)
     ApplyPageVisibility()
 
@@ -3693,6 +4074,7 @@ local CHAT_EVENTS = {
 addon:SetScript("OnUpdate", function()
     if IsManastormerAwake() and HasAutomationAuthority() then
         ProcessRaidLevelReport()
+        MaybeNotifyMissingAuraGroups()
     else
         raidReportQueue = nil
         readyCheckArmed = false
@@ -3744,12 +4126,20 @@ addon:SetScript("OnEvent", function(self, event, ...)
         )
     elseif event == "PLAYER_LOGIN" then
         Schedule(2, function()
-            if IsManastormerAwake() then BroadcastVersion(true) end
+            if IsManastormerAwake() then
+                BroadcastVersion(true)
+                RequestRoleSync(true)
+            end
         end)
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, message, _, sender = ...
         if IsManastormerAwake() and prefix == VERSION_PREFIX then
+            if sender and not IsSelf(sender) and IsGrouped(sender) then
+                addonUsers[NameKey(sender)] = { name = sender, seen = GetTime() }
+            end
             ReceiveVersion(message, sender)
+            ReceiveRoleSync(message, sender)
+            Refresh()
         end
     elseif CHAT_EVENTS[event] then
         local message, author, _, channelName = ...
@@ -3784,11 +4174,13 @@ addon:SetScript("OnEvent", function(self, event, ...)
                 readyCheckArmed = false
                 manastormEntryArmed = false
                 pendingLevel60Kicks = {}
+                pendingLevel59Kicks = {}
                 chaoticLinkStacks = {}
                 chaoticLinkLastWarning = {}
                 chaoticLinkLastAnnouncedStack = {}
                 chaoticLinkBrokenAt = {}
                 UpdateKickButton()
+                UpdateKick59Button()
             end
             CheckLevels()
             Refresh()
@@ -3796,7 +4188,10 @@ addon:SetScript("OnEvent", function(self, event, ...)
             RefreshChatScannerPanel()
         end)
         Schedule(1, function()
-            if IsManastormerAwake() then BroadcastVersion(false) end
+            if IsManastormerAwake() then
+                BroadcastVersion(false)
+                RequestRoleSync(false)
+            end
         end)
     elseif event == "LFG_UPDATE"
         or event == "LFG_QUEUE_STATUS_UPDATE"
@@ -3817,7 +4212,9 @@ addon:SetScript("OnEvent", function(self, event, ...)
         local inInstance = type(IsInInstance) == "function" and IsInInstance()
         if inInstance and not InstanceNameIsManastorm() then
             pendingLevel60Kicks = {}
+            pendingLevel59Kicks = {}
             UpdateKickButton()
+            UpdateKick59Button()
         end
         Schedule(1, function()
             UpdateRosterDepartures()
@@ -3848,6 +4245,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
             AttemptLevel60Kick(pendingName)
         end
         UpdateKickButton()
+        UpdateKick59Button()
     elseif event == "READY_CHECK_FINISHED" then
         if IsManastormerAwake() and HasAutomationAuthority() then
             FinishReadyCheckQueue()
@@ -3953,7 +4351,7 @@ SlashCmdList["MANASTORMER"] = function(message)
         sessionActive = false
         Refresh()
     elseif command == "clear" then
-        db.signups = {}
+        ClearAllSignups()
         db.nextOrder = 0
         warningSeen = {}
         Refresh()

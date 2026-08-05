@@ -1,4 +1,4 @@
-MANASTORMER 2.8.20
+MANASTORMER 2.8.21
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,10 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Reloading the UI now starts genuinely paused. Background level watching,
+  kick controls, Aura reminders, chat capture, tank markers and Chaotic Link
+  reporting stay off until Listen or Role Check is deliberately started. The
+  compact panel clearly says PAUSED while monitoring is off.
 - Fixes compact view text being crossed by the full-size header divider. The
   divider now hides in compact mode, and the compact panel grows vertically
   when extra alerts need more lines.
@@ -57,8 +61,8 @@ MAIN FEATURES
   and raid automation for Dungeon Finder queues/groups and inside non-Manastorm
   instances, then resumes afterward.
 - Compatible with both ElvUI and Ascension's native WoW interface. Manastormer
-  detects the active interface but never hooks, hides or modifies its protected
-  raid frames or unit-popup menus.
+  never hides or modifies protected raid frames. Manual-role entries are added
+  through Ascension's standard unit-popup hook used by both interfaces.
 - CoA Planner-inspired navy, bronze and gold interface with matching fonts.
 - Custom Manastormer artwork in the window header and on the minimap.
 - Draggable minimap button: left-click toggles the GUI and right-click hides it.
@@ -110,9 +114,10 @@ MAIN FEATURES
   player is counted correctly as soon as they join.
 - Ignores identical Chat Scanner advertisements repeated by the same player
   within 60 seconds.
-- Avoids modifying Blizzard/ElvUI's protected right-click raid menus. Manual
-  roles remain available through /msm tank PlayerName, /msm healer PlayerName,
-  /msm dps PlayerName and /msm aura PlayerName.
+- Restores right-click manual role controls for yourself, party members and raid
+  members: toggle Tank, Healer, DPS or Aura, or clear all roles. These options
+  do not require the player to be in range. Slash-command controls remain
+  available as a fallback.
 - Keeps the raid owner unassigned until a role is manually selected or detected.
 - Shows level 59 players and provides a secure, user-clicked kick button that
   rechecks the player's current grouped level before appearing.

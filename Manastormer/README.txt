@@ -1,4 +1,4 @@
-MANASTORMER 2.8.25
+MANASTORMER 2.8.26
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,10 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Fixes chat scanning after a raid reset by ignoring Ascension's stale cached
+  dungeon-finder state when the player is no longer in an LFG party.
+- Keeps the secure Manastorm entry control outside the main panel so minimize,
+  expand, open and close requests can safely wait until combat ends.
 - Replaces the blocked delayed UninviteUnit calls with an Ascension-safe secure
   disband flow. The first click snapshots and warns the raid; after five seconds
   a red secure control appears for the leader to click out of combat. It verifies

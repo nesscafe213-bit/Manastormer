@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.21**
+Current release: **v2.8.22**
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.21.zip`.
+2. Download `Manastormer-2.8.22.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -26,6 +26,8 @@ backs up the existing addon, installs the update and verifies the version.
 
 ## Highlights
 
+- Starts closed and paused after every login or `/reload`; open it from the
+  minimap button or with `/msm` when beginning a Manastorm session.
 - Right-click yourself or a grouped player to toggle Tank, Healer, DPS or Aura,
   or clear their Manastormer roles; range is not required.
 - Reloading starts paused: background level checks, kick controls, Aura

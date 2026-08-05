@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.25**
+Current release: **v2.8.26**
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.25.zip`.
+2. Download `Manastormer-2.8.26.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -26,6 +26,10 @@ backs up the existing addon, installs the update and verifies the version.
 
 ## Highlights
 
+- Chat scanning resumes immediately after a raid reset even if Ascension leaves
+  an old dungeon-finder mode cached until the next reload.
+- Combat-safe panel sizing: the secure Manastorm entry control no longer protects
+  the main panel, and minimize/expand requests wait cleanly for combat to end.
 - Ascension-safe raid reset: snapshot and five-second warning first, then a
   secure leader click removes the saved raid in verified batches; automatic
   reinvites remain armed until the leader leaves the dungeon.

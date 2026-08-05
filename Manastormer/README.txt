@@ -1,4 +1,4 @@
-MANASTORMER 2.8.21
+MANASTORMER 2.8.22
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,8 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Manastormer now starts closed and paused after every login or /reload. Open
+  it only when needed with the minimap button or /msm, then press Listen.
 - Reloading the UI now starts genuinely paused. Background level watching,
   kick controls, Aura reminders, chat capture, tank markers and Chaotic Link
   reporting stay off until Listen or Role Check is deliberately started. The

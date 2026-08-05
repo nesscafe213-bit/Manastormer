@@ -4480,6 +4480,9 @@ function Sync.CreatePanel()
     SetMinimized(db.minimized == true)
     Refresh()
     Sync.CreateMinimapButton()
+    -- Login and /reload always begin closed and paused. The minimap button and
+    -- /msm remain available when the player wants to begin a Manastorm session.
+    panel:Hide()
 end
 
 local CHAT_EVENTS = {

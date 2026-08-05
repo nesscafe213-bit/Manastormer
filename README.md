@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.18**
+Current release: **v2.8.20**
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.18.zip`.
+2. Download `Manastormer-2.8.20.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -26,6 +26,11 @@ backs up the existing addon, installs the update and verifies the version.
 
 ## Highlights
 
+- Compact view keeps its status writing clear of the header divider and grows
+  vertically when several important alerts are visible.
+- One-click raid reset snapshots eligible members, gives a five-second group
+  notice, waits out combat, disbands, then automatically reinvites after the
+  leader leaves the dungeon. Level-60 and blocked players are excluded.
 - Level-59 and level-60 kick buttons send the removed player a friendly thank-you whisper and the GitHub download link.
 - Role headings are centred precisely over the icon cells in both recruitment panels.
 - Restores addon loading on Ascension after v2.8.15 exceeded its legacy Lua local-variable limit.

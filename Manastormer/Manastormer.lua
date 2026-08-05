@@ -247,7 +247,9 @@ local function IsDungeonFinderActive()
     mode = Trim(mode):lower()
     submode = Trim(submode):lower()
     if mode == "lfgparty" or submode == "lfgparty" then
-        return true
+        -- Ascension can leave lfgparty cached after a group reset. Only treat it
+        -- as active while we are actually in a non-raid dungeon-finder party.
+        return InParty() and not InRaid()
     end
     if InParty() or InRaid() then
         return mode == "rolecheck"
@@ -2035,11 +2037,11 @@ local function CurrentLevel60Members()
     return players
 end
 
--- Keep the protected level-60 fallback independent from the main window.
--- Parenting or anchoring it to the panel causes Ascension to protect the whole
--- panel, which prevents compact/full layout changes during combat.
+-- Keep every protected control independent from the main window. Parenting or
+-- anchoring one to the panel causes Ascension to protect the whole panel, which
+-- prevents compact/full layout changes during combat.
 PositionKickButton = function()
-    if not kick60Button or not kick59Button or not panel then
+    if not enterManastormButton or not kick60Button or not kick59Button or not panel then
         return
     end
     if InCombatLockdown and InCombatLockdown() then
@@ -2050,6 +2052,14 @@ PositionKickButton = function()
     if not left or not top then
         return
     end
+    enterManastormButton:ClearAllPoints()
+    enterManastormButton:SetPoint(
+        "TOPLEFT",
+        UIParent,
+        "BOTTOMLEFT",
+        left + 208,
+        top - 217
+    )
     kick60Button:ClearAllPoints()
     kick60Button:SetPoint(
         "TOPLEFT",
@@ -2556,15 +2566,16 @@ end
 
 local function ApplyPageVisibility()
     local minimized = db and db.minimized
+    local panelVisible = panel and panel:IsShown()
     local _, element
     for _, element in ipairs(fullUIElements) do
-        if minimized or activePage ~= "raid" then element:Hide() else element:Show() end
+        if not panelVisible or minimized or activePage ~= "raid" then element:Hide() else element:Show() end
     end
     for _, element in ipairs(settingsUIElements) do
-        if minimized or activePage ~= "settings" then element:Hide() else element:Show() end
+        if not panelVisible or minimized or activePage ~= "settings" then element:Hide() else element:Show() end
     end
     if pageButton then
-        if minimized then
+        if not panelVisible or minimized then
             pageButton:Hide()
         else
             pageButton:Show()
@@ -4053,6 +4064,7 @@ function Sync.SetPanelShown(shown)
     pendingPanelShown = nil
     if shown then
         panel:Show()
+        ApplyPageVisibility()
         UpdateActivityState(false)
         UpdateRosterDepartures()
         CheckLevels()
@@ -4080,6 +4092,7 @@ function Sync.SetPanelShown(shown)
         UpdateKickButton()
         UpdateKick59Button()
         panel:Hide()
+        ApplyPageVisibility()
     end
     return true
 end
@@ -4383,9 +4396,11 @@ function Sync.CreatePanel()
     enterManastormButton = CreateFrame(
         "Button",
         "ManastormerSecureEnterButton",
-        panel,
+        UIParent,
         "SecureActionButtonTemplate"
     )
+    enterManastormButton:SetFrameStrata(panel:GetFrameStrata() or "MEDIUM")
+    enterManastormButton:SetFrameLevel(panel:GetFrameLevel() + 5)
     enterManastormButton:SetWidth(192)
     enterManastormButton:SetHeight(28)
     StyleButton(
@@ -4427,7 +4442,6 @@ function Sync.CreatePanel()
         end
     end)
     TrackFullUI(enterManastormButton)
-    enterManastormButton:SetPoint("LEFT", readyCheckButton, "RIGHT", 6, 0)
 
     level59Text = panel:CreateFontString(nil, "OVERLAY")
     level59Text:SetFont(FONT_BODY, 10, "")
@@ -4583,6 +4597,7 @@ function Sync.CreatePanel()
     -- Login and /reload always begin closed and paused. The minimap button and
     -- /msm remain available when the player wants to begin a Manastorm session.
     panel:Hide()
+    ApplyPageVisibility()
 end
 
 local CHAT_EVENTS = {

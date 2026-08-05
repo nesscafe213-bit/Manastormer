@@ -1,4 +1,4 @@
-MANASTORMER 2.8.22
+MANASTORMER 2.8.25
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,18 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Replaces the blocked delayed UninviteUnit calls with an Ascension-safe secure
+  disband flow. The first click snapshots and warns the raid; after five seconds
+  a red secure control appears for the leader to click out of combat. It verifies
+  the removals and prepares another secure batch only if required. Automatic
+  reinvites remain armed for after the leader leaves the dungeon.
+- Farewell whispers now correctly wish players good luck with their rolls.
+  A detected level-59 player who leaves the group also receives the thank-you
+  and download message. A 60-second deduplicator prevents double whispers when
+  the secure kick and roster departure happen together.
+- Prevents the compact/full interface from splitting apart when expanded in
+  combat. Opening, closing, minimizing, expanding and page changes now leave
+  the current layout untouched during combat and apply automatically afterward.
 - Manastormer now starts closed and paused after every login or /reload. Open
   it only when needed with the minimap button or /msm, then press Listen.
 - Reloading the UI now starts genuinely paused. Background level watching,
@@ -22,12 +34,8 @@ MAIN FEATURES
 - Fixes compact view text being crossed by the full-size header divider. The
   divider now hides in compact mode, and the compact panel grows vertically
   when extra alerts need more lines.
-- Adds DISBAND + AUTO REINVITE: snapshots every eligible raid member, posts a
-  normal group warning, waits five seconds and removes the raid one player at
-  a time. Combat automatically pauses the reset until combat ends. Reinvites
-  begin automatically after the leader is outside the dungeon; level-60 and
-  blocked players are excluded. Ascension-protected removal failures are
-  detected and reported instead of being treated as successful.
+- DISBAND + AUTO REINVITE excludes level-60 and blocked players from the saved
+  list and automatically waits out combat before arming its secure control.
 - Clicking either secure level-59 or level-60 kick button whispers that player
   a thank-you, wishes them good luck with their roles, explains the scaling
   removal and includes the Manastormer GitHub download link.

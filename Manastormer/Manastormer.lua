@@ -1595,12 +1595,22 @@ function Sync.ClearAllSignups()
     db.signups = {}
 end
 
-function Sync.SendFarewellWhisper(name, level)
+function Sync.SendFarewellWhisper(name, level, departed)
     if not name or IsSelf(name) or type(SendChatMessage) ~= "function" then return end
+    Sync.farewellSent = Sync.farewellSent or {}
+    local farewellKey = NameKey(name) .. ":" .. tostring(level)
+    local lastSent = Sync.farewellSent[farewellKey]
+    if lastSent and GetTime() - lastSent < 60 then return end
+    Sync.farewellSent[farewellKey] = GetTime()
+    local levelReason
+    if departed then
+        levelReason = "You left at level " .. tostring(level) .. ", helping protect the group scaling. "
+    else
+        levelReason = "You were removed at level " .. tostring(level) .. " to protect the group scaling. "
+    end
     SendChatMessage(
-        "Thanks for joining our Manastorm group, and good luck with your roles! "
-            .. "You were removed at level " .. tostring(level)
-            .. " to protect the group scaling. Download Manastormer: "
+        "Thanks for joining our Manastorm group, and good luck with your rolls! "
+            .. levelReason .. "Download Manastormer: "
             .. "https://github.com/nesscafe213-bit/Manastormer",
         "WHISPER",
         nil,
@@ -1669,7 +1679,7 @@ function Sync.BeginRaidReset()
     db.autoReinvitePending = true
     Sync.UpdateResetButton("DISBANDING IN 5...")
     Sync.ResetGroupMessage(
-        "Raid will disband in 5 seconds. The saved group will be reinvited automatically after leaving the dungeon."
+        "Raid will disband in 5 seconds. The leader will confirm Ascension's secure disband control, then the saved group will be reinvited automatically after leaving the dungeon."
     )
 end
 
@@ -1696,8 +1706,71 @@ end
 function Sync.FinishRaidReset(message)
     db.autoReinvitePending = false
     Sync.raidReset = nil
+    if Sync.resetSecureButton and not (InCombatLockdown and InCombatLockdown()) then
+        Sync.resetSecureButton:Hide()
+        Sync.resetSecureButton:SetAttribute("macrotext", "")
+    end
     Sync.UpdateResetButton()
     LocalWarning(message)
+end
+
+function Sync.MoveResetToWaitingExit()
+    local reset = Sync.raidReset
+    if not reset then return end
+    if Sync.resetSecureButton and not (InCombatLockdown and InCombatLockdown()) then
+        Sync.resetSecureButton:Hide()
+        Sync.resetSecureButton:SetAttribute("macrotext", "")
+    end
+    reset.stage = "waiting_exit"
+    reset.index = 1
+    reset.nextAt = GetTime() + 1
+    Sync.UpdateResetButton("WAITING OUTSIDE DUNGEON...")
+    LocalWarning("Raid disbanded. Auto reinvite is armed for when you leave the dungeon.")
+end
+
+function Sync.PrepareSecureResetBatch()
+    local reset = Sync.raidReset
+    local button = Sync.resetSecureButton
+    if not reset or not button then
+        Sync.FinishRaidReset("The secure disband control could not be created.")
+        return
+    end
+    if InCombatLockdown and InCombatLockdown() then
+        reset.stage = "waiting_combat"
+        reset.nextAt = GetTime() + 1
+        Sync.UpdateResetButton("WAITING FOR COMBAT...")
+        return
+    end
+
+    local macroText = ""
+    local count = 0
+    local _, name
+    for _, name in ipairs(reset.names) do
+        if IsGrouped(name) and not IsSelf(name) then
+            local line = "/uninvite " .. name
+            local candidate = macroText == "" and line or (macroText .. "\n" .. line)
+            if #candidate <= 240 then
+                macroText = candidate
+                count = count + 1
+            end
+        end
+    end
+    if count == 0 then
+        Sync.MoveResetToWaitingExit()
+        return
+    end
+
+    button:SetAttribute("type", "macro")
+    button:SetAttribute("macrotext", macroText)
+    button:SetText("CLICK TO DISBAND SAVED RAID (" .. count .. ")")
+    PositionKickButton()
+    button:Show()
+    reset.stage = "await_secure_click"
+    reset.nextAt = GetTime() + 86400
+    Sync.UpdateResetButton("CLICK RED DISBAND CONTROL")
+    LocalWarning(
+        "Ascension requires a secure click to remove the saved raid. Click the red DISBAND SAVED RAID control now."
+    )
 end
 
 function Sync.ProcessRaidReset()
@@ -1711,55 +1784,22 @@ function Sync.ProcessRaidReset()
             Sync.UpdateResetButton("WAITING FOR COMBAT...")
             return
         end
-        reset.stage = "remove"
+        reset.stage = "secure_remove"
         reset.index = 1
         reset.retries = 0
         reset.nextAt = 0
-        Sync.UpdateResetButton("DISBANDING RAID...")
+        Sync.UpdateResetButton("PREPARING SECURE DISBAND...")
     end
 
-    if reset.stage == "remove" then
-        if InCombatLockdown and InCombatLockdown() then
-            reset.stage = "waiting_combat"
-            reset.nextAt = GetTime() + 1
-            Sync.UpdateResetButton("WAITING FOR COMBAT...")
-            return
-        end
-        local name = reset.names[reset.index]
-        while name and not IsGrouped(name) do
-            reset.index = reset.index + 1
-            reset.retries = 0
-            name = reset.names[reset.index]
-        end
-        if not name then
-            reset.stage = "waiting_exit"
-            reset.index = 1
-            reset.nextAt = GetTime() + 1
-            Sync.UpdateResetButton("WAITING OUTSIDE DUNGEON...")
-            LocalWarning("Raid disbanded. Auto reinvite is armed for when you leave the dungeon.")
-            return
-        end
-        if reset.retries >= 4 then
-            Sync.FinishRaidReset(
-                "Ascension blocked automatic removal of " .. ShortName(name)
-                    .. ". Use the secure kick control, then start the reset again."
-            )
-            return
-        end
-        local called = Sync.RemoveResetMember(name)
-        reset.retries = reset.retries + 1
-        if not called then
-            Sync.FinishRaidReset(
-                "Ascension did not allow automatic removal of " .. ShortName(name)
-                    .. ". Use the secure kick control, then start the reset again."
-            )
-            return
-        end
-        if not IsGrouped(name) then
-            reset.index = reset.index + 1
-            reset.retries = 0
-        end
-        reset.nextAt = GetTime() + 0.7
+    if reset.stage == "secure_remove" then
+        Sync.PrepareSecureResetBatch()
+        return
+    end
+
+    if reset.stage == "secure_verify" then
+        reset.stage = "secure_remove"
+        reset.nextAt = 0
+        Sync.PrepareSecureResetBatch()
         return
     end
 
@@ -2026,6 +2066,16 @@ PositionKickButton = function()
         left + 10,
         top - (db and db.minimized and 144 or 419)
     )
+    if Sync.resetSecureButton then
+        Sync.resetSecureButton:ClearAllPoints()
+        Sync.resetSecureButton:SetPoint(
+            "TOPLEFT",
+            UIParent,
+            "BOTTOMLEFT",
+            left + 10,
+            top - (db and db.minimized and 176 or 451)
+        )
+    end
 end
 
 local function LiveGroupedLevel(name)
@@ -2159,6 +2209,13 @@ local function UpdateRosterDepartures()
         local key, name
         for key, name in pairs(previousRosterNames) do
             if not current[key] and not IsSelf(name) then
+                local pending59Name
+                for pending59Name in pairs(pendingLevel59Kicks) do
+                    if SameName(pending59Name, name) then
+                        Sync.SendFarewellWhisper(name, 59, true)
+                        break
+                    end
+                end
                 table.insert(recentDepartures, {
                     name = ShortName(name),
                     at = GetTime(),
@@ -3950,6 +4007,15 @@ SetMinimized = function(minimized)
         return
     end
     minimized = minimized and true or false
+    if InCombatLockdown and InCombatLockdown() then
+        pendingMinimizedState = minimized
+        LocalWarning(
+            "Manastormer will switch to "
+                .. (minimized and "compact" or "full")
+                .. " view when combat ends."
+        )
+        return false
+    end
     pendingMinimizedState = nil
     panelIsMinimized = minimized
     db.minimized = minimized and true or false
@@ -4238,7 +4304,14 @@ function Sync.CreatePanel()
     StyleButton(pageButton, "slate", "Switch Page", "Switches between raid controls and flexible Manastorm requirements.")
     pageButton:SetText("SETTINGS")
     pageButton:SetScript("OnClick", function()
-        activePage = activePage == "raid" and "settings" or "raid"
+        local currentPage = Sync.pendingPage or activePage
+        local requestedPage = currentPage == "raid" and "settings" or "raid"
+        if InCombatLockdown and InCombatLockdown() then
+            Sync.pendingPage = requestedPage
+            LocalWarning("Manastormer will open the " .. requestedPage .. " page when combat ends.")
+            return
+        end
+        activePage = requestedPage
         if activePage == "settings" then RefreshSettingsPage() end
         ApplyPageVisibility()
     end)
@@ -4473,6 +4546,33 @@ function Sync.CreatePanel()
     end)
     kick59Button:Hide()
 
+    Sync.resetSecureButton = CreateFrame(
+        "Button",
+        "ManastormerSecureRaidResetButton",
+        UIParent,
+        "SecureActionButtonTemplate"
+    )
+    Sync.resetSecureButton:SetWidth(390)
+    Sync.resetSecureButton:SetHeight(28)
+    StyleButton(
+        Sync.resetSecureButton,
+        "red",
+        "Securely Disband Saved Raid",
+        "Ascension protects raid removal. After the five-second warning, click this control out of combat. If every saved name does not fit in one secure macro, Manastormer prepares the next batch for another click."
+    )
+    Sync.resetSecureButton:SetText("CLICK TO DISBAND SAVED RAID")
+    Sync.resetSecureButton:SetAttribute("type", "macro")
+    Sync.resetSecureButton:SetAttribute("macrotext", "")
+    Sync.resetSecureButton:SetScript("PostClick", function(self)
+        local reset = Sync.raidReset
+        if not reset or reset.stage ~= "await_secure_click" then return end
+        if not (InCombatLockdown and InCombatLockdown()) then self:Hide() end
+        reset.stage = "secure_verify"
+        reset.nextAt = GetTime() + 1
+        Sync.UpdateResetButton("VERIFYING SECURE DISBAND...")
+    end)
+    Sync.resetSecureButton:Hide()
+
     CreateSettingsUI(panel)
     ApplyPageVisibility()
 
@@ -4669,6 +4769,12 @@ addon:SetScript("OnEvent", function(self, event, ...)
             local requestedState = pendingMinimizedState
             pendingMinimizedState = nil
             SetMinimized(requestedState)
+        end
+        if Sync.pendingPage then
+            activePage = Sync.pendingPage
+            Sync.pendingPage = nil
+            if activePage == "settings" then RefreshSettingsPage() end
+            ApplyPageVisibility()
         end
         local names = {}
         local name

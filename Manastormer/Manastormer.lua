@@ -784,7 +784,8 @@ local function AuraCoverage()
 end
 
 function Sync.MaybeNotifyMissingAuraGroups()
-    if not IsManastormerAwake()
+    if not sessionActive
+        or not IsManastormerAwake()
         or not InRaid()
         or not IsRaidLeader()
         or not ManastormAutomationAllowed()
@@ -855,6 +856,9 @@ function Sync.GroupLeaderName()
 end
 
 function Sync.StatusLine()
+    if not sessionActive then
+        return "|cffaaaaaaPAUSED - press Listen to start watching|r"
+    end
     if not InRaid() and not InParty() then
         return "|cff888888SYNC: waiting for a group|r"
     end
@@ -907,6 +911,7 @@ function Sync.BroadcastSignupDelete(name)
 end
 
 function Sync.SendRoleSyncSnapshot()
+    if not sessionActive then return end
     if not IsRaidLeader() and not (InParty() and UnitIsPartyLeader("player")) then return end
     local now = GetTime()
     if now - Sync.lastRoleSyncSnapshot < 2 then return end
@@ -923,7 +928,12 @@ function Sync.SendRoleSyncSnapshot()
 end
 
 function Sync.RequestRoleSync(force)
-    if not IsManastormerAwake() or (not InRaid() and not InParty()) then return end
+    if not sessionActive
+        or not IsManastormerAwake()
+        or (not InRaid() and not InParty())
+    then
+        return
+    end
     local now = GetTime()
     if not force and now - Sync.lastRoleSyncRequest < 10 then return end
     Sync.lastRoleSyncRequest = now
@@ -931,7 +941,8 @@ function Sync.RequestRoleSync(force)
 end
 
 function Sync.ReceiveRoleSync(message, sender)
-    if not IsManastormerAwake()
+    if not sessionActive
+        or not IsManastormerAwake()
         or not ManastormAutomationAllowed()
         or not sender
         or IsSelf(sender)
@@ -999,6 +1010,16 @@ function Sync.ReceiveRoleSync(message, sender)
         return true
     end
     return false
+end
+
+function Sync.StartRoleSync()
+    if not sessionActive then return end
+    BroadcastVersion(true)
+    if IsRaidLeader() or (InParty() and UnitIsPartyLeader("player")) then
+        Sync.SendRoleSyncSnapshot()
+    else
+        Sync.RequestRoleSync(true)
+    end
 end
 
 local function PlayerReportRole(name)
@@ -1074,7 +1095,7 @@ local function ProcessRaidLevelReport()
 end
 
 local function AssignTankMarkers()
-    if not IsManastormerAwake() then return end
+    if not sessionActive or not IsManastormerAwake() then return end
     if not IsInsideManastorm() or not InRaid() or not CanManageRaid() then
         return
     end
@@ -1478,7 +1499,8 @@ local function MaybeReplyRoleCapacity(author, roles)
 end
 
 local function TrackChaoticLink(...)
-    if not IsManastormerAwake()
+    if not sessionActive
+        or not IsManastormerAwake()
         or not HasAutomationAuthority()
         or not IsInsideManastorm()
         or (db and db.chaoticLinkReporting == false)
@@ -1850,6 +1872,114 @@ local function ToggleManualRole(name, role)
     Refresh()
 end
 
+Sync.roleMenuValues = {
+    tank = "MANASTORMER_ROLE_TANK",
+    healer = "MANASTORMER_ROLE_HEALER",
+    dps = "MANASTORMER_ROLE_DPS",
+    aura = "MANASTORMER_ROLE_AURA",
+    clear = "MANASTORMER_ROLE_CLEAR",
+}
+
+function Sync.RoleMenuTargetName(dropdown)
+    if not dropdown then return nil end
+    if dropdown.unit and type(UnitName) == "function" and UnitName(dropdown.unit) then
+        return UnitFullName(dropdown.unit)
+    end
+    return dropdown.name
+end
+
+function Sync.AddRoleMenuOption(menuName, value, afterValue)
+    local menu = UnitPopupMenus and UnitPopupMenus[menuName]
+    if type(menu) ~= "table" then return end
+    local _, existing
+    for _, existing in ipairs(menu) do
+        if existing == value then return end
+    end
+    local index, menuValue
+    for index, menuValue in ipairs(menu) do
+        if menuValue == afterValue then
+            table.insert(menu, index + 1, value)
+            return
+        end
+    end
+    table.insert(menu, math.max(1, #menu), value)
+end
+
+function Sync.UpdateRoleMenuVisibility()
+    local dropdown = UIDROPDOWNMENU_INIT_MENU
+    local level = UIDROPDOWNMENU_MENU_LEVEL or 1
+    if not dropdown or not UnitPopupShown or not UnitPopupShown[level] then return end
+    local targetName = Sync.RoleMenuTargetName(dropdown)
+    local visible = targetName and (IsSelf(targetName) or IsGrouped(targetName))
+    local menuName = UIDROPDOWNMENU_MENU_VALUE or dropdown.which
+    local menu = UnitPopupMenus and UnitPopupMenus[menuName]
+    if type(menu) ~= "table" then return end
+    local index, value
+    for index, value in ipairs(menu) do
+        if value == Sync.roleMenuValues.tank
+            or value == Sync.roleMenuValues.healer
+            or value == Sync.roleMenuValues.dps
+            or value == Sync.roleMenuValues.aura
+            or value == Sync.roleMenuValues.clear
+        then
+            UnitPopupShown[level][index] = visible and 1 or 0
+        end
+    end
+end
+
+function Sync.InstallRoleMenus()
+    if Sync.roleMenusInstalled
+        or type(UnitPopupButtons) ~= "table"
+        or type(UnitPopupMenus) ~= "table"
+        or type(hooksecurefunc) ~= "function"
+        or type(UnitPopup_HideButtons) ~= "function"
+        or type(UnitPopup_OnClick) ~= "function"
+    then
+        return
+    end
+    Sync.roleMenusInstalled = true
+    UnitPopupButtons[Sync.roleMenuValues.tank] = { text = "Manastormer: Toggle Tank", dist = 0 }
+    UnitPopupButtons[Sync.roleMenuValues.healer] = { text = "Manastormer: Toggle Healer", dist = 0 }
+    UnitPopupButtons[Sync.roleMenuValues.dps] = { text = "Manastormer: Toggle DPS", dist = 0 }
+    UnitPopupButtons[Sync.roleMenuValues.aura] = { text = "Manastormer: Toggle Aura", dist = 0 }
+    UnitPopupButtons[Sync.roleMenuValues.clear] = { text = "Manastormer: Clear Roles", dist = 0 }
+
+    local _, menuName
+    for _, menuName in ipairs({ "SELF", "PLAYER", "PARTY", "RAID_PLAYER" }) do
+        local afterValue = "INSPECT"
+        Sync.AddRoleMenuOption(menuName, Sync.roleMenuValues.tank, afterValue)
+        afterValue = Sync.roleMenuValues.tank
+        Sync.AddRoleMenuOption(menuName, Sync.roleMenuValues.healer, afterValue)
+        afterValue = Sync.roleMenuValues.healer
+        Sync.AddRoleMenuOption(menuName, Sync.roleMenuValues.dps, afterValue)
+        afterValue = Sync.roleMenuValues.dps
+        Sync.AddRoleMenuOption(menuName, Sync.roleMenuValues.aura, afterValue)
+        afterValue = Sync.roleMenuValues.aura
+        Sync.AddRoleMenuOption(menuName, Sync.roleMenuValues.clear, afterValue)
+    end
+
+    hooksecurefunc("UnitPopup_HideButtons", Sync.UpdateRoleMenuVisibility)
+    hooksecurefunc("UnitPopup_OnClick", function(button)
+        if not button then return end
+        local dropdown = UIDROPDOWNMENU_INIT_MENU
+        local targetName = Sync.RoleMenuTargetName(dropdown)
+        if not targetName or (not IsSelf(targetName) and not IsGrouped(targetName)) then return end
+        if button.value == Sync.roleMenuValues.clear then
+            RemoveSignup(targetName)
+            Print(ShortName(targetName) .. " roles cleared.")
+            Refresh()
+            return
+        end
+        local role, value
+        for role, value in pairs(Sync.roleMenuValues) do
+            if role ~= "clear" and button.value == value then
+                ToggleManualRole(targetName, role)
+                return
+            end
+        end
+    end)
+end
+
 local function CurrentLevel60Members()
     local players = {}
     local _, member
@@ -1912,6 +2042,11 @@ UpdateKickButton = function()
     if not kick60Button then
         return
     end
+    local inCombat = InCombatLockdown and InCombatLockdown()
+    if not sessionActive or not IsManastormerAwake() then
+        if not inCombat then kick60Button:Hide() end
+        return
+    end
     local kickName
     local name
     for name in pairs(pendingLevel60Kicks) do
@@ -1924,7 +2059,6 @@ UpdateKickButton = function()
         end
     end
 
-    local inCombat = InCombatLockdown and InCombatLockdown()
     if not HasAutomationAuthority() then
         if not inCombat then
             kick60Button:Hide()
@@ -1955,6 +2089,11 @@ end
 
 UpdateKick59Button = function()
     if not kick59Button then return end
+    local inCombat = InCombatLockdown and InCombatLockdown()
+    if not sessionActive or not IsManastormerAwake() then
+        if not inCombat then kick59Button:Hide() end
+        return
+    end
     local kickName
     local name
     for name in pairs(pendingLevel59Kicks) do
@@ -1967,7 +2106,6 @@ UpdateKick59Button = function()
         end
     end
 
-    local inCombat = InCombatLockdown and InCombatLockdown()
     if not IsManastormerAwake() or not HasAutomationAuthority() or not kickName then
         if not inCombat then kick59Button:Hide() end
         return
@@ -1984,7 +2122,8 @@ UpdateKick59Button = function()
 end
 
 local function AttemptLevel60Kick(name)
-    if not IsManastormerAwake()
+    if not sessionActive
+        or not IsManastormerAwake()
         or not HasAutomationAuthority()
         or not ManastormAutomationAllowed()
         or not name
@@ -2056,7 +2195,7 @@ local function UpdateRosterDepartures()
 end
 
 local function WarnWipeForLevel60(newLevel)
-    if not IsManastormerAwake() or not HasAutomationAuthority() then
+    if not sessionActive or not IsManastormerAwake() or not HasAutomationAuthority() then
         return
     end
     local players = CurrentLevel60Members()
@@ -2099,7 +2238,8 @@ local function WarnWipeForLevel60(newLevel)
 end
 
 local function CheckLevels()
-    if not IsManastormerAwake()
+    if not sessionActive
+        or not IsManastormerAwake()
         or not HasAutomationAuthority()
         or not ManastormAutomationAllowed()
     then
@@ -2189,7 +2329,7 @@ Refresh = function()
     for _, member in ipairs(GetRoster()) do
         local signup = FindSignup(member.name)
         local level = member.unit and UnitLevel(member.unit) or member.level
-        if signup and level == 59 then
+        if sessionActive and signup and level == 59 then
             table.insert(
                 level59Players,
                 ShortName(member.name) .. " (" .. RoleText(signup.roles) .. ")"
@@ -2212,24 +2352,24 @@ Refresh = function()
                 .. (missingPlayers > 0 and "  |cffff7777Missing " .. missingPlayers .. " player(s)|r" or "  |cff55ff66Full|r")
         )
 
-        if not HasAutomationAuthority() then
+        if sessionActive and not HasAutomationAuthority() then
             table.insert(compactLines, "|cffaaaaaaSILENT - you are not leader or assistant|r")
         end
 
         local tankNeeded = math.max(0, ROLE_TARGET.tank - counts.tank)
         local healerNeeded = math.max(0, ROLE_TARGET.healer - counts.healer)
         local auraNeeded = math.max(0, ROLE_TARGET.aura - counts.aura)
-        if tankNeeded > 0 or healerNeeded > 0 or auraNeeded > 0 then
+        if sessionActive and (tankNeeded > 0 or healerNeeded > 0 or auraNeeded > 0) then
             table.insert(
                 compactLines,
                 "|cffffcc66Need:|r " .. tankNeeded .. " Tank  "
                     .. healerNeeded .. " Healer  " .. auraNeeded .. " Aura"
             )
-        else
+        elseif sessionActive then
             table.insert(compactLines, "|cff55ff66Tank, Healer and Aura coverage ready|r")
         end
 
-        if not auraGroupsCovered then
+        if sessionActive and not auraGroupsCovered then
             table.insert(
                 compactLines,
                 "|cffffcc33! Missing Aura in Group "
@@ -2250,7 +2390,7 @@ Refresh = function()
             table.insert(compactLines, "|cffffaa33Level 59:|r " .. table.concat(level59Players, ", "))
         end
 
-        local level60Players = CurrentLevel60Members()
+        local level60Players = sessionActive and CurrentLevel60Members() or {}
         if #level60Players > 0 then
             local shortNames = {}
             local _, name
@@ -2274,7 +2414,7 @@ Refresh = function()
             end
             index = index - 1
         end
-        if #departureNames > 0 then
+        if sessionActive and #departureNames > 0 then
             local extra = departureCount - #departureNames
             table.insert(
                 compactLines,
@@ -4122,8 +4262,13 @@ function Sync.CreatePanel()
         warningSeen = {}
         if sessionActive then
             Print("Listening for 1 Tank, 2 Healer, 3 Aura.")
+            Sync.StartRoleSync()
             CheckLevels()
         else
+            pendingLevel60Kicks = {}
+            pendingLevel59Kicks = {}
+            UpdateKickButton()
+            UpdateKick59Button()
             Print("Signup listening paused.")
         end
         Refresh()
@@ -4133,6 +4278,7 @@ function Sync.CreatePanel()
     local askButton = MakeButton(panel, "ROLE CHECK /RW", 120, function()
         sessionActive = true
         warningSeen = {}
+        Sync.StartRoleSync()
         local roleCheckMessage = "[Manastormer Addon] ROLE CHECK: Tanks type 1, Healers type 2, Auras type 3. Combos like 13 (Tank/Aura) or 23 (Healer/Aura) work."
         if InRaid() and CanManageRaid() then
             SendChatMessage(roleCheckMessage, "RAID_WARNING")
@@ -4141,6 +4287,7 @@ function Sync.CreatePanel()
         else
             Print("Join a group first, or use Listen and post the question yourself.")
         end
+        CheckLevels()
         Refresh()
     end, "Manastormer Role Check", "Posts the numbered Tank 1, Healer 2 and Aura 3 role check, including the 13 and 23 combinations, then starts listening.", "blue")
     askButton:SetPoint("LEFT", listenButton, "RIGHT", 5, 0)
@@ -4399,6 +4546,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
             end
         end
         Sync.CreatePanel()
+        Sync.InstallRoleMenus()
         if type(RegisterAddonMessagePrefix) == "function" then
             pcall(RegisterAddonMessagePrefix, VERSION_PREFIX)
         end
@@ -4426,7 +4574,9 @@ addon:SetScript("OnEvent", function(self, event, ...)
     elseif CHAT_EVENTS[event] then
         local message, author, _, channelName = ...
         local roles = event == "CHAT_MSG_WHISPER" and ParseWhisperRoles(message) or ParseRoles(message)
-        local activityAllowed = IsManastormerAwake() and ManastormAutomationAllowed()
+        local activityAllowed = sessionActive
+            and IsManastormerAwake()
+            and ManastormAutomationAllowed()
         if event == "CHAT_MSG_WHISPER" and author and activityAllowed then
             local captured = Sync.CaptureWhisper(author, message, roles, "Whisper")
             if captured then
@@ -4628,9 +4778,15 @@ SlashCmdList["MANASTORMER"] = function(message)
     elseif command == "listen" then
         sessionActive = true
         warningSeen = {}
+        Sync.StartRoleSync()
+        CheckLevels()
         Refresh()
     elseif command == "pause" then
         sessionActive = false
+        pendingLevel60Kicks = {}
+        pendingLevel59Kicks = {}
+        UpdateKickButton()
+        UpdateKick59Button()
         Refresh()
     elseif command == "clear" then
         Sync.ClearAllSignups()

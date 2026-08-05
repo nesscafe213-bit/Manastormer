@@ -1,4 +1,4 @@
-MANASTORMER 2.8.18
+MANASTORMER 2.8.20
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,15 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Fixes compact view text being crossed by the full-size header divider. The
+  divider now hides in compact mode, and the compact panel grows vertically
+  when extra alerts need more lines.
+- Adds DISBAND + AUTO REINVITE: snapshots every eligible raid member, posts a
+  normal group warning, waits five seconds and removes the raid one player at
+  a time. Combat automatically pauses the reset until combat ends. Reinvites
+  begin automatically after the leader is outside the dungeon; level-60 and
+  blocked players are excluded. Ascension-protected removal failures are
+  detected and reported instead of being treated as successful.
 - Clicking either secure level-59 or level-60 kick button whispers that player
   a thank-you, wishes them good luck with their roles, explains the scaling
   removal and includes the Manastormer GitHub download link.

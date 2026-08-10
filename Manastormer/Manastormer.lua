@@ -1074,7 +1074,7 @@ local function StartRaidLevelReport()
         index = 1,
         nextAt = 0,
     }
-    Print("Reporting " .. #lines .. " player levels and roles to /rw.")
+    Print("Reporting " .. #lines .. " player levels and roles to /r.")
 end
 
 local function ProcessRaidLevelReport()
@@ -1091,7 +1091,7 @@ local function ProcessRaidLevelReport()
         Print("Level and role report complete.")
         return
     end
-    SendChatMessage(line, "RAID_WARNING")
+    SendChatMessage(line, "RAID")
     raidReportQueue.index = raidReportQueue.index + 1
     raidReportQueue.nextAt = GetTime() + 0.4
 end
@@ -2047,43 +2047,59 @@ PositionKickButton = function()
     if InCombatLockdown and InCombatLockdown() then
         return
     end
-    local left = panel:GetLeft()
-    local top = panel:GetTop()
-    if not left or not top then
+    local point, relativeFrame, relativePoint, x, y = panel:GetPoint(1)
+    if not point then
         return
     end
+    relativeFrame = relativeFrame or UIParent
+    relativePoint = relativePoint or point
+    x = x or 0
+    y = y or 0
+
+    -- Recreate the panel's top-left position in its existing UIParent anchor
+    -- space. GetLeft/GetTop can use a different scaled coordinate space on
+    -- Ascension, which made the detached secure button appear far below the UI.
+    local width = panel:GetWidth() or 410
+    local height = panel:GetHeight() or 456
+    local anchorX = point:find("RIGHT", 1, true) and width
+        or (point:find("LEFT", 1, true) and 0 or width / 2)
+    local anchorY = point:find("BOTTOM", 1, true) and height
+        or (point:find("TOP", 1, true) and 0 or height / 2)
+    local panelLeftX = x - anchorX
+    local panelTopY = y + anchorY
+
     enterManastormButton:ClearAllPoints()
     enterManastormButton:SetPoint(
         "TOPLEFT",
-        UIParent,
-        "BOTTOMLEFT",
-        left + 208,
-        top - 217
+        relativeFrame,
+        relativePoint,
+        panelLeftX + 208,
+        panelTopY - 217
     )
     kick60Button:ClearAllPoints()
     kick60Button:SetPoint(
         "TOPLEFT",
-        UIParent,
-        "BOTTOMLEFT",
-        left + 10,
-        top - (db and db.minimized and 112 or 387)
+        relativeFrame,
+        relativePoint,
+        panelLeftX + 10,
+        panelTopY - (db and db.minimized and 112 or 387)
     )
     kick59Button:ClearAllPoints()
     kick59Button:SetPoint(
         "TOPLEFT",
-        UIParent,
-        "BOTTOMLEFT",
-        left + 10,
-        top - (db and db.minimized and 144 or 419)
+        relativeFrame,
+        relativePoint,
+        panelLeftX + 10,
+        panelTopY - (db and db.minimized and 144 or 419)
     )
     if Sync.resetSecureButton then
         Sync.resetSecureButton:ClearAllPoints()
         Sync.resetSecureButton:SetPoint(
             "TOPLEFT",
-            UIParent,
-            "BOTTOMLEFT",
-            left + 10,
-            top - (db and db.minimized and 176 or 451)
+            relativeFrame,
+            relativePoint,
+            panelLeftX + 10,
+            panelTopY - (db and db.minimized and 176 or 451)
         )
     end
 end
@@ -4477,9 +4493,9 @@ function Sync.CreatePanel()
     end, "Clear All Roles", "Removes every saved Tank, Healer, DPS and Aura assignment.", "red")
     clearButton:SetPoint("TOPLEFT", 290, -319)
 
-    local reportButton = MakeButton(panel, "REPORT LEVELS + ROLES /RW", 390, function()
+    local reportButton = MakeButton(panel, "REPORT LEVELS + ROLES /R", 390, function()
         StartRaidLevelReport()
-    end, "Report Raid Levels and Roles", "Posts one Raid Warning per player with their current level, selected main role and highlighted Aura status. Players without a selected main role are listed as DPS.", "blue")
+    end, "Report Raid Levels and Roles", "Posts one normal raid-chat message per player with their current level, selected main role and highlighted Aura status. Players without a selected main role are listed as DPS.", "blue")
     reportButton:SetPoint("TOPLEFT", 10, -353)
 
     statusText = panel:CreateFontString(nil, "OVERLAY")

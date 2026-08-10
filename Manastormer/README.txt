@@ -1,4 +1,4 @@
-MANASTORMER 2.8.26
+MANASTORMER 2.8.28
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,10 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Sends the player level-and-role report to normal raid chat instead of Raid
+  Warning, keeping the centre of the screen clear.
+- Keeps the detached secure Enter Manastorm button visually aligned with the
+  Ready Check row at every Ascension UI scale and saved window anchor.
 - Fixes chat scanning after a raid reset by ignoring Ascension's stale cached
   dungeon-finder state when the player is no longer in an LFG party.
 - Keeps the secure Manastorm entry control outside the main panel so minimize,

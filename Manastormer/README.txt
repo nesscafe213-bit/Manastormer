@@ -1,4 +1,4 @@
-MANASTORMER 2.8.29
+MANASTORMER 2.8.30
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,9 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Fixes the level-59 and level-60 secure kick controls in full-size view. The
+  detached buttons now sit above the mouse-enabled main panel, so their visible
+  secure click is no longer intercepted. Compact-view behaviour is unchanged.
 - Adds coordinated LEAVE + REGROUP for Ascension Manastorms. The raid leader
   snapshots all eligible players, gives a five-second warning, and synchronises
   C_Manastorm.Leave across Manastormer users. Outside, members whisper the saved

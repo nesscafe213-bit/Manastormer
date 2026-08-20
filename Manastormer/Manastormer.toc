@@ -2,7 +2,7 @@
 ## Title: |cffe8c96aManastormer|r
 ## Notes: Flexible Mana Storm raid helper for Project Ascension.
 ## Author: Nesscafe
-## Version: 2.8.29
+## Version: 2.8.30
 ## SavedVariables: ManastormerDB, ManaStormAscensionDB
 
 Manastormer.lua

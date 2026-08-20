@@ -1622,7 +1622,7 @@ end
 
 function Sync.UpdateResetButton(text)
     if Sync.resetButton then
-        Sync.resetButton:SetText(text or "DISBAND + AUTO REINVITE")
+        Sync.resetButton:SetText(text or "LEAVE + REGROUP")
     end
 end
 
@@ -1654,11 +1654,25 @@ end
 
 function Sync.BeginRaidReset()
     if not InRaid() or not IsRaidLeader() then
-        LocalWarning("Only the raid leader can start Disband + Auto Reinvite.")
+        LocalWarning("Only the raid leader can start Leave + Regroup.")
         return
     end
     if Sync.raidReset then
-        LocalWarning("A disband/reinvite sequence is already active.")
+        if Sync.raidReset.stage == "countdown"
+            or Sync.raidReset.stage == "waiting_leave"
+        then
+            Sync.TryCoordinatedLeave()
+        else
+            LocalWarning("A leave/regroup sequence is already active.")
+        end
+        return
+    end
+    if not IsInsideManastorm() then
+        LocalWarning("Leave + Regroup can only be started from inside a Manastorm.")
+        return
+    end
+    if type(C_Manastorm) ~= "table" or type(C_Manastorm.Leave) ~= "function" then
+        LocalWarning("Ascension's C_Manastorm.Leave API is not available.")
         return
     end
     local snapshot = Sync.SaveRaidResetSnapshot()
@@ -1666,31 +1680,78 @@ function Sync.BeginRaidReset()
         LocalWarning("There are no eligible players to snapshot and reinvite.")
         return
     end
+    local now = GetTime()
+    local token = tostring(time()) .. "-" .. tostring(math.floor(now * 1000) % 100000)
     Sync.raidReset = {
+        token = token,
         stage = "countdown",
         snapshot = snapshot,
         names = {},
-        index = 1,
-        nextAt = GetTime() + 5,
-        retries = 0,
+        leader = UnitFullName("player"),
+        isLeader = true,
+        eligible = true,
+        leaveAt = now + 5,
+        -- Send the legacy WeakAura signal early enough that its three-second
+        -- timer completes before our API fallback, avoiding two same-frame calls.
+        announceAt = now + 1.5,
+        expiresAt = now + 180,
+        nextAt = now,
+        inviteIndex = 1,
+        inviteTimes = {},
+        ineligible = {},
+        addonReady = {},
     }
     local _, member
     for _, member in ipairs(snapshot.members) do
         table.insert(Sync.raidReset.names, member.name)
     end
     db.autoReinvitePending = true
-    Sync.UpdateResetButton("DISBANDING IN 5...")
+    Sync.SendGroupAddonMessage("R|S|" .. token .. "|5")
+    Sync.UpdateResetButton("LEAVING IN 5...")
     Sync.ResetGroupMessage(
-        "Raid will disband in 5 seconds. The leader will confirm Ascension's secure disband control, then the saved group will be reinvited automatically after leaving the dungeon."
+        "Coordinated regroup in 5 seconds. Manastormer users will leave and rejoin automatically. Everyone else: leave the Manastorm and whisper 'inv' to the raid leader."
     )
 end
 
-function Sync.RemoveResetMember(name)
-    if type(UninviteUnit) == "function" then
-        return pcall(UninviteUnit, name)
+function Sync.ReceiveRaidResetMessage(message, sender)
+    local action, token, value = tostring(message or ""):match("^R|([^|]+)|([^|]+)|?(.*)$")
+    if not action or not token or not sender or IsSelf(sender) then return false end
+
+    if action == "S" then
+        if not IsInsideManastorm() or not Sync.SenderIsGroupLeader(sender) then
+            return false
+        end
+        if Sync.raidReset and Sync.raidReset.token == token then return true end
+        if Sync.raidReset then return false end
+
+        local delay = Clamp(tonumber(value) or 5, 3, 10)
+        local now = GetTime()
+        local level = tonumber(UnitLevel("player")) or 0
+        Sync.raidReset = {
+            token = token,
+            stage = "countdown",
+            leader = sender,
+            isLeader = false,
+            eligible = level > 0 and level < 60,
+            leaveAt = now + delay,
+            expiresAt = now + 180,
+            nextAt = now,
+            sawSolo = false,
+        }
+        db.autoReinvitePending = true
+        Sync.SendGroupAddonMessage("R|A|" .. token .. "|" .. tostring(level))
+        Sync.UpdateResetButton("LEAVING IN " .. tostring(math.floor(delay)) .. "...")
+        LocalWarning("Raid leader " .. tostring(sender) .. " started a coordinated Manastorm regroup.")
+        return true
     end
-    if C_PartyInfo and type(C_PartyInfo.UninviteUnit) == "function" then
-        return pcall(C_PartyInfo.UninviteUnit, name, "Manastorm reset", true)
+
+    local reset = Sync.raidReset
+    if action == "A" and reset and reset.isLeader and reset.token == token and IsGrouped(sender) then
+        local reportedLevel = tonumber(value)
+        local key = NameKey(sender)
+        reset.addonReady[key] = { name = sender, level = reportedLevel }
+        if reportedLevel and reportedLevel >= 60 then reset.ineligible[key] = true end
+        return true
     end
     return false
 end
@@ -1708,177 +1769,175 @@ end
 function Sync.FinishRaidReset(message)
     db.autoReinvitePending = false
     Sync.raidReset = nil
-    if Sync.resetSecureButton and not (InCombatLockdown and InCombatLockdown()) then
-        Sync.resetSecureButton:Hide()
-        Sync.resetSecureButton:SetAttribute("macrotext", "")
-    end
     Sync.UpdateResetButton()
-    LocalWarning(message)
+    if message and message ~= "" then LocalWarning(message) end
 end
 
-function Sync.MoveResetToWaitingExit()
-    local reset = Sync.raidReset
-    if not reset then return end
-    if Sync.resetSecureButton and not (InCombatLockdown and InCombatLockdown()) then
-        Sync.resetSecureButton:Hide()
-        Sync.resetSecureButton:SetAttribute("macrotext", "")
+function Sync.ResetSnapshotName(reset, name)
+    if not reset or not reset.names then return nil end
+    local _, savedName
+    for _, savedName in ipairs(reset.names) do
+        if SameName(savedName, name) then return savedName end
     end
-    reset.stage = "waiting_exit"
-    reset.index = 1
-    reset.nextAt = GetTime() + 1
-    Sync.UpdateResetButton("WAITING OUTSIDE DUNGEON...")
-    LocalWarning("Raid disbanded. Auto reinvite is armed for when you leave the dungeon.")
+    return nil
 end
 
-function Sync.PrepareSecureResetBatch()
+function Sync.TryCoordinatedLeave()
     local reset = Sync.raidReset
-    local button = Sync.resetSecureButton
-    if not reset or not button then
-        Sync.FinishRaidReset("The secure disband control could not be created.")
-        return
-    end
-    if InCombatLockdown and InCombatLockdown() then
-        reset.stage = "waiting_combat"
+    if not reset or not IsInsideManastorm() then return false end
+    if type(C_Manastorm) ~= "table" or type(C_Manastorm.Leave) ~= "function" then
+        reset.stage = "waiting_leave"
         reset.nextAt = GetTime() + 1
-        Sync.UpdateResetButton("WAITING FOR COMBAT...")
-        return
+        Sync.UpdateResetButton("LEAVE API UNAVAILABLE")
+        return false
     end
 
-    local macroText = ""
-    local count = 0
-    local _, name
-    for _, name in ipairs(reset.names) do
-        if IsGrouped(name) and not IsSelf(name) then
-            local line = "/uninvite " .. name
-            local candidate = macroText == "" and line or (macroText .. "\n" .. line)
-            if #candidate <= 240 then
-                macroText = candidate
-                count = count + 1
-            end
+    if type(C_Manastorm.CanLeave) == "function" then
+        local ok, canLeave = pcall(C_Manastorm.CanLeave)
+        if ok and canLeave == false then
+            reset.stage = "waiting_leave"
+            reset.nextAt = GetTime() + 1
+            Sync.UpdateResetButton("WAITING TO LEAVE...")
+            return false
         end
     end
-    if count == 0 then
-        Sync.MoveResetToWaitingExit()
-        return
-    end
 
-    button:SetAttribute("type", "macro")
-    button:SetAttribute("macrotext", macroText)
-    button:SetText("CLICK TO DISBAND SAVED RAID (" .. count .. ")")
-    PositionKickButton()
-    button:Show()
-    reset.stage = "await_secure_click"
-    reset.nextAt = GetTime() + 86400
-    Sync.UpdateResetButton("CLICK RED DISBAND CONTROL")
-    LocalWarning(
-        "Ascension requires a secure click to remove the saved raid. Click the red DISBAND SAVED RAID control now."
-    )
+    local ok = pcall(C_Manastorm.Leave)
+    reset.leaveCalledAt = GetTime()
+    reset.stage = "waiting_exit"
+    reset.nextAt = GetTime() + 1
+    Sync.UpdateResetButton(ok and "LEAVING MANASTORM..." or "RETRYING LEAVE...")
+    return ok
+end
+
+function Sync.HandleResetWhisper(message, author)
+    local reset = Sync.raidReset
+    if not reset or not reset.isLeader or IsInsideManastorm() then return false end
+    if Trim(message):lower() ~= "inv" then return false end
+    local savedName = Sync.ResetSnapshotName(reset, author)
+    if not savedName or IsBlocked60(savedName) or reset.ineligible[NameKey(savedName)] then return false end
+    reset.inviteTimes[NameKey(savedName)] = 0
+    reset.nextAt = 0
+    return true
+end
+
+function Sync.HandleResetInviteRequest(sender)
+    local reset = Sync.raidReset
+    if not reset or reset.isLeader or not reset.eligible or IsInsideManastorm() then return false end
+    if not SameName(sender, reset.leader) then return false end
+
+    local dialog = type(StaticPopup_FindVisible) == "function"
+        and StaticPopup_FindVisible("PARTY_INVITE") or nil
+    if dialog then dialog.inviteAccepted = 1 end
+    Schedule(0, function()
+        local active = Sync.raidReset
+        if not active or active.isLeader or not SameName(sender, active.leader) then return end
+        if type(AcceptGroup) == "function" then pcall(AcceptGroup) end
+        if dialog and dialog.Hide then dialog:Hide() end
+    end)
+    return true
 end
 
 function Sync.ProcessRaidReset()
     local reset = Sync.raidReset
-    if not reset or GetTime() < (reset.nextAt or 0) then return end
-
-    if reset.stage == "countdown" or reset.stage == "waiting_combat" then
-        if InCombatLockdown and InCombatLockdown() then
-            reset.stage = "waiting_combat"
-            reset.nextAt = GetTime() + 1
-            Sync.UpdateResetButton("WAITING FOR COMBAT...")
-            return
-        end
-        reset.stage = "secure_remove"
-        reset.index = 1
-        reset.retries = 0
-        reset.nextAt = 0
-        Sync.UpdateResetButton("PREPARING SECURE DISBAND...")
-    end
-
-    if reset.stage == "secure_remove" then
-        Sync.PrepareSecureResetBatch()
+    if not reset then return end
+    local now = GetTime()
+    if now >= (reset.expiresAt or now + 1) then
+        Sync.FinishRaidReset("The coordinated regroup timed out. The saved roster is still available.")
         return
     end
 
-    if reset.stage == "secure_verify" then
-        reset.stage = "secure_remove"
-        reset.nextAt = 0
-        Sync.PrepareSecureResetBatch()
+    if reset.stage == "countdown" then
+        if reset.isLeader and not reset.leaveSignalSent and now >= (reset.announceAt or 0) then
+            reset.leaveSignalSent = true
+            SendChatMessage("LEAVE", InRaid() and "RAID" or "PARTY")
+        end
+        local remaining = math.max(0, math.ceil((reset.leaveAt or now) - now))
+        Sync.UpdateResetButton("LEAVING IN " .. tostring(remaining) .. "...")
+        if now >= (reset.leaveAt or 0) then Sync.TryCoordinatedLeave() end
+        return
+    end
+
+    if reset.stage == "waiting_leave" then
+        if now >= (reset.nextAt or 0) then Sync.TryCoordinatedLeave() end
         return
     end
 
     if reset.stage == "waiting_exit" then
-        local inInstance = type(IsInInstance) == "function" and IsInInstance()
-        if inInstance then
-            reset.nextAt = GetTime() + 2
+        if IsInsideManastorm() then
+            if now - (reset.leaveCalledAt or 0) >= 4 then Sync.TryCoordinatedLeave() end
             return
         end
-        reset.stage = "invite_first"
-        reset.index = 1
-        reset.inviteSentAt = nil
+        if not InRaid() and not InParty() then reset.sawSolo = true end
+        if not reset.sawSolo then
+            Sync.UpdateResetButton("WAITING FOR GROUP TO SPLIT...")
+            return
+        end
+        reset.stage = reset.isLeader and "regroup_leader" or "regroup_member"
         reset.nextAt = 0
-        Sync.UpdateResetButton("AUTO REINVITING...")
-        LocalWarning("Outside the dungeon. Starting automatic reinvites from the saved snapshot.")
+        Sync.UpdateResetButton(reset.isLeader and "REINVITING SAVED RAID..." or "WAITING FOR REINVITE...")
     end
 
-    if reset.stage == "invite_first" then
-        if InCombatLockdown and InCombatLockdown() then
-            reset.nextAt = GetTime() + 1
+    if reset.stage == "regroup_member" then
+        if not reset.eligible then
+            Sync.FinishRaidReset("You reached level 60, so Manastormer will not rejoin this regroup.")
             return
         end
-        if InRaid() or InParty() then
-            if InParty() and not InRaid() and type(ConvertToRaid) == "function" then
-                pcall(ConvertToRaid)
-            end
-            reset.stage = "invite_rest"
-            reset.index = 1
-            reset.nextAt = GetTime() + 1
+        if (InRaid() or InParty()) and IsGrouped(reset.leader) then
+            Sync.FinishRaidReset("Rejoined the saved Manastorm group.")
             return
         end
-        local name = reset.names[reset.index]
-        while name and (IsBlocked60(name) or IsSelf(name)) do
-            reset.index = reset.index + 1
-            reset.inviteSentAt = nil
-            name = reset.names[reset.index]
-        end
-        if not name then
-            Sync.FinishRaidReset("No saved player accepted the first reinvite. Snapshot remains saved.")
-            return
-        end
-        if not reset.inviteSentAt then
-            Sync.InviteResetMember(name)
-            reset.inviteSentAt = GetTime()
-            reset.nextAt = GetTime() + 1
-        elseif GetTime() - reset.inviteSentAt >= 15 then
-            reset.index = reset.index + 1
-            reset.inviteSentAt = nil
-            reset.nextAt = 0
-        else
-            reset.nextAt = GetTime() + 1
+        if not InRaid() and not InParty() and now >= (reset.nextAt or 0) then
+            SendChatMessage("inv", "WHISPER", nil, reset.leader)
+            reset.nextAt = now + 6
+            Sync.UpdateResetButton("REQUESTING REINVITE...")
         end
         return
     end
 
-    if reset.stage == "invite_rest" then
-        if InCombatLockdown and InCombatLockdown() then
-            reset.nextAt = GetTime() + 1
-            return
-        end
-        if InParty() and not InRaid() and type(ConvertToRaid) == "function" then
+    if reset.stage == "regroup_leader" then
+        if InParty() and not InRaid() and GroupSize() >= 5 and type(ConvertToRaid) == "function" then
             pcall(ConvertToRaid)
-            reset.nextAt = GetTime() + 0.5
+            reset.nextAt = now + 1
             return
         end
-        local name = reset.names[reset.index]
-        while name and (IsSelf(name) or IsGrouped(name) or IsBlocked60(name)) do
-            reset.index = reset.index + 1
-            name = reset.names[reset.index]
+        if now < (reset.nextAt or 0) then return end
+
+        local missing = 0
+        local count = #reset.names
+        local checked
+        for checked = 1, count do
+            if reset.inviteIndex > count then reset.inviteIndex = 1 end
+            local name = reset.names[reset.inviteIndex]
+            reset.inviteIndex = reset.inviteIndex + 1
+            if not IsGrouped(name) and not IsBlocked60(name)
+                and not reset.ineligible[NameKey(name)]
+            then
+                local key = NameKey(name)
+                local lastInvite = reset.inviteTimes[key] or 0
+                if now - lastInvite >= 6 then
+                    Sync.InviteResetMember(name)
+                    reset.inviteTimes[key] = now
+                    reset.nextAt = now + 0.8
+                    Sync.UpdateResetButton("REINVITING " .. tostring(name) .. "...")
+                    return
+                end
+            end
         end
-        if not name then
-            Sync.FinishRaidReset("Automatic reinvite pass complete. Declined or offline players remain in the saved snapshot.")
-            return
+
+        for _, name in ipairs(reset.names) do
+            if not IsGrouped(name) and not IsBlocked60(name)
+                and not reset.ineligible[NameKey(name)]
+            then
+                missing = missing + 1
+            end
         end
-        Sync.InviteResetMember(name)
-        reset.index = reset.index + 1
-        reset.nextAt = GetTime() + 0.8
+        if missing == 0 then
+            Sync.FinishRaidReset("Saved Manastorm group restored.")
+        else
+            reset.nextAt = now + 1
+            Sync.UpdateResetButton("REGROUPING - " .. tostring(missing) .. " WAITING")
+        end
     end
 end
 
@@ -2092,16 +2151,6 @@ PositionKickButton = function()
         panelLeftX + 10,
         panelTopY - (db and db.minimized and 144 or 419)
     )
-    if Sync.resetSecureButton then
-        Sync.resetSecureButton:ClearAllPoints()
-        Sync.resetSecureButton:SetPoint(
-            "TOPLEFT",
-            relativeFrame,
-            relativePoint,
-            panelLeftX + 10,
-            panelTopY - (db and db.minimized and 176 or 451)
-        )
-    end
 end
 
 local function LiveGroupedLevel(name)
@@ -4479,9 +4528,9 @@ function Sync.CreatePanel()
     )
     TrackFullUI(level59Hover)
 
-    Sync.resetButton = MakeButton(panel, "DISBAND + AUTO REINVITE", 274, function()
+    Sync.resetButton = MakeButton(panel, "LEAVE + REGROUP", 274, function()
         Sync.BeginRaidReset()
-    end, "Disband and Auto Reinvite", "Snapshots every eligible raid member, warns the raid, waits 5 seconds, then disbands. If you are in combat it waits until combat ends. Reinvites begin automatically only after you are outside the dungeon. Level 60 and blocked players are excluded.", "red")
+    end, "Leave and Regroup", "Inside a Manastorm, snapshots every eligible raid member and starts a five-second coordinated exit. Manastormer users leave, request the saved leader, and accept that trusted reinvite automatically. Level 60 and blocked players are never reinvited.", "red")
     Sync.resetButton:SetPoint("TOPLEFT", 10, -319)
 
     local clearButton = MakeButton(panel, "Clear Roles", 110, function()
@@ -4576,33 +4625,6 @@ function Sync.CreatePanel()
     end)
     kick59Button:Hide()
 
-    Sync.resetSecureButton = CreateFrame(
-        "Button",
-        "ManastormerSecureRaidResetButton",
-        UIParent,
-        "SecureActionButtonTemplate"
-    )
-    Sync.resetSecureButton:SetWidth(390)
-    Sync.resetSecureButton:SetHeight(28)
-    StyleButton(
-        Sync.resetSecureButton,
-        "red",
-        "Securely Disband Saved Raid",
-        "Ascension protects raid removal. After the five-second warning, click this control out of combat. If every saved name does not fit in one secure macro, Manastormer prepares the next batch for another click."
-    )
-    Sync.resetSecureButton:SetText("CLICK TO DISBAND SAVED RAID")
-    Sync.resetSecureButton:SetAttribute("type", "macro")
-    Sync.resetSecureButton:SetAttribute("macrotext", "")
-    Sync.resetSecureButton:SetScript("PostClick", function(self)
-        local reset = Sync.raidReset
-        if not reset or reset.stage ~= "await_secure_click" then return end
-        if not (InCombatLockdown and InCombatLockdown()) then self:Hide() end
-        reset.stage = "secure_verify"
-        reset.nextAt = GetTime() + 1
-        Sync.UpdateResetButton("VERIFYING SECURE DISBAND...")
-    end)
-    Sync.resetSecureButton:Hide()
-
     CreateSettingsUI(panel)
     ApplyPageVisibility()
 
@@ -4670,6 +4692,9 @@ addon:SetScript("OnEvent", function(self, event, ...)
         db.nextOrder = db.nextOrder or #db.signups
         db.whispers = db.whispers or {}
         db.chatScanner = db.chatScanner or {}
+        -- A regroup is intentionally memory-only because a /reload loses the
+        -- trusted leader/session token required for safe automatic acceptance.
+        db.autoReinvitePending = false
         ApplyRequirements()
         if type(db.minimap) ~= "table" then db.minimap = { hide = false, angle = 225 } end
         if db.minimap.angle == nil then db.minimap.angle = 225 end
@@ -4702,16 +4727,22 @@ addon:SetScript("OnEvent", function(self, event, ...)
                 Sync.addonUsers[NameKey(sender)] = { name = sender, seen = GetTime() }
             end
             ReceiveVersion(message, sender)
+            Sync.ReceiveRaidResetMessage(message, sender)
             Sync.ReceiveRoleSync(message, sender)
             Refresh()
         end
+    elseif event == "PARTY_INVITE_REQUEST" then
+        local sender = ...
+        Sync.HandleResetInviteRequest(sender)
     elseif CHAT_EVENTS[event] then
         local message, author, _, channelName = ...
+        local resetWhisper = event == "CHAT_MSG_WHISPER"
+            and Sync.HandleResetWhisper(message, author)
         local roles = event == "CHAT_MSG_WHISPER" and ParseWhisperRoles(message) or ParseRoles(message)
         local activityAllowed = sessionActive
             and IsManastormerAwake()
             and ManastormAutomationAllowed()
-        if event == "CHAT_MSG_WHISPER" and author and activityAllowed then
+        if event == "CHAT_MSG_WHISPER" and author and activityAllowed and not resetWhisper then
             local captured = Sync.CaptureWhisper(author, message, roles, "Whisper")
             if captured then
                 MaybeReplyRoleCapacity(author, roles)
@@ -4888,6 +4919,7 @@ addon:RegisterEvent("LFG_PROPOSAL_SHOW")
 addon:RegisterEvent("LFG_PROPOSAL_SUCCEEDED")
 addon:RegisterEvent("LFG_PROPOSAL_FAILED")
 addon:RegisterEvent("PLAYER_REGEN_ENABLED")
+pcall(addon.RegisterEvent, addon, "PARTY_INVITE_REQUEST")
 addon:RegisterEvent("READY_CHECK_FINISHED")
 addon:RegisterEvent("READY_CHECK_CONFIRM")
 addon:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
@@ -4969,7 +5001,7 @@ SlashCmdList["MANASTORMER"] = function(message)
         Print("/msm listen, /msm pause, /msm clear")
         Print("/msm minimap - show or hide the minimap button")
         Print("/msm whispers - open or close the recruitment whisper list")
-        Print("/msm resetraid - snapshot, disband and auto reinvite outside the dungeon")
+        Print("/msm resetraid - coordinated Manastorm leave and saved-roster regroup")
         Print("/msm api - show Ascension Manastorm API/frame diagnostics")
         Print("/msm tank, healer, dps, aura - toggle role on your target")
         Print("/msm clearrole - clear your target's Mana Storm roles")

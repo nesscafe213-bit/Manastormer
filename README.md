@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.28**
+Current release: **v2.8.29**
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.28.zip`.
+2. Download `Manastormer-2.8.29.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -26,6 +26,13 @@ backs up the existing addon, installs the update and verifies the version.
 
 ## Highlights
 
+- Coordinated **Leave + Regroup** uses Ascension's native Manastorm API: the
+  leader snapshots the eligible roster, gives a five-second warning, and all
+  participating Manastormer users leave together. Outside, members request and
+  safely auto-accept only the saved leader's invitation while reinvites are
+  paced and the party converts back to a raid. Level-60 and blocked players are
+  never reinvited; non-addon users receive simple manual instructions.
+- Removes the old protected `/uninvite` macro and detached secure disband button.
 - Level-and-role reports now use normal raid chat rather than Raid Warning.
 - The combat-safe Enter Manastorm control now stays aligned beside Ready Check
   across Ascension UI scales and saved window positions.
@@ -33,9 +40,6 @@ backs up the existing addon, installs the update and verifies the version.
   an old dungeon-finder mode cached until the next reload.
 - Combat-safe panel sizing: the secure Manastorm entry control no longer protects
   the main panel, and minimize/expand requests wait cleanly for combat to end.
-- Ascension-safe raid reset: snapshot and five-second warning first, then a
-  secure leader click removes the saved raid in verified batches; automatic
-  reinvites remain armed until the leader leaves the dungeon.
 - Farewell messages say “good luck with your rolls”; detected level-59 players
   are also thanked when they leave, with duplicate whispers suppressed.
 - Combat-safe layout changes prevent full-size controls from detaching from the
@@ -48,7 +52,7 @@ backs up the existing addon, installs the update and verifies the version.
   reminders and chat monitoring remain off until Listen or Role Check starts.
 - Compact view keeps its status writing clear of the header divider and grows
   vertically when several important alerts are visible.
-- Raid reset excludes level-60 and blocked players from its saved reinvite list.
+- Leave + Regroup excludes level-60 and blocked players from its saved reinvite list.
 - Level-59 and level-60 kick buttons send the removed player a friendly thank-you whisper and the GitHub download link.
 - Role headings are centred precisely over the icon cells in both recruitment panels.
 - Restores addon loading on Ascension after v2.8.15 exceeded its legacy Lua local-variable limit.

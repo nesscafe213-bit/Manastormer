@@ -1,4 +1,4 @@
-MANASTORMER 2.8.28
+MANASTORMER 2.8.29
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,12 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Adds coordinated LEAVE + REGROUP for Ascension Manastorms. The raid leader
+  snapshots all eligible players, gives a five-second warning, and synchronises
+  C_Manastorm.Leave across Manastormer users. Outside, members whisper the saved
+  leader, automatically accept only that trusted leader's invitation, and the
+  leader paces reinvites before converting back to a raid. Level-60 and blocked
+  players are excluded. Players without the addon receive manual instructions.
 - Sends the player level-and-role report to normal raid chat instead of Raid
   Warning, keeping the centre of the screen clear.
 - Keeps the detached secure Enter Manastorm button visually aligned with the
@@ -21,11 +27,8 @@ MAIN FEATURES
   dungeon-finder state when the player is no longer in an LFG party.
 - Keeps the secure Manastorm entry control outside the main panel so minimize,
   expand, open and close requests can safely wait until combat ends.
-- Replaces the blocked delayed UninviteUnit calls with an Ascension-safe secure
-  disband flow. The first click snapshots and warns the raid; after five seconds
-  a red secure control appears for the leader to click out of combat. It verifies
-  the removals and prepares another secure batch only if required. Automatic
-  reinvites remain armed for after the leader leaves the dungeon.
+- Removes the unreliable protected UninviteUnit/macro disband path. Regrouping
+  now uses Ascension's native Manastorm leave API and never modifies raid frames.
 - Farewell whispers now correctly wish players good luck with their rolls.
   A detected level-59 player who leaves the group also receives the thank-you
   and download message. A 60-second deduplicator prevents double whispers when
@@ -42,8 +45,7 @@ MAIN FEATURES
 - Fixes compact view text being crossed by the full-size header divider. The
   divider now hides in compact mode, and the compact panel grows vertically
   when extra alerts need more lines.
-- DISBAND + AUTO REINVITE excludes level-60 and blocked players from the saved
-  list and automatically waits out combat before arming its secure control.
+- LEAVE + REGROUP excludes level-60 and blocked players from the saved list.
 - Clicking either secure level-59 or level-60 kick button whispers that player
   a thank-you, wishes them good luck with their roles, explains the scaling
   removal and includes the Manastormer GitHub download link.
@@ -144,7 +146,7 @@ MAIN FEATURES
   automatic UninviteUnit calls that can taint protected raid controls.
 - Warns three times to wipe if a level-60 player enters the next Manastorm.
 - Assigns raid markers to Tanks when entering a Manastorm.
-- Reports every player's level and role through Raid Warning.
+- Reports every player's level and role through normal raid chat.
 - Provides separate Ready Check and Enter Manastorm 1 buttons for testing.
 - Ready Check only checks the current raid and never queues automatically.
 - Check Manastorm 1 now performs read-only validation. It never calls
@@ -164,6 +166,10 @@ REMOVED IN 2.4.0
 - Build Groups and automatic raid-party rearrangement.
 - Me: Tank, Me: Healer, Me: DPS and Me: Aura buttons.
 - Save/Disband and Reinvite Saved controls.
+
+RETURNED IN 2.8.29
+- A new Ascension-native LEAVE + REGROUP flow replaces the removed protected
+  disband controls.
 
 ROLE COMMANDS
 /msm tank PlayerName

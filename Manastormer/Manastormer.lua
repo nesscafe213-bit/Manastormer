@@ -4579,6 +4579,11 @@ function Sync.CreatePanel()
     -- This secure action must not be a child of the main panel. Ascension would
     -- otherwise protect the panel itself and block compact view during combat.
     kick60Button = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+    -- In full view this detached button overlaps the panel's rectangle. Keep it
+    -- above the mouse-enabled panel or the panel intercepts an otherwise visible
+    -- secure click. Compact view placed it below the panel and hid this bug.
+    kick60Button:SetFrameStrata(panel:GetFrameStrata() or "MEDIUM")
+    kick60Button:SetFrameLevel(panel:GetFrameLevel() + 6)
     kick60Button:SetWidth(390)
     kick60Button:SetHeight(28)
     StyleButton(
@@ -4602,6 +4607,8 @@ function Sync.CreatePanel()
     kick60Button:Hide()
 
     kick59Button = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+    kick59Button:SetFrameStrata(panel:GetFrameStrata() or "MEDIUM")
+    kick59Button:SetFrameLevel(panel:GetFrameLevel() + 6)
     kick59Button:SetWidth(390)
     kick59Button:SetHeight(28)
     StyleButton(

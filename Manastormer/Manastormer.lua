@@ -1644,7 +1644,7 @@ end
 
 function Sync.UpdateResetButton(text)
     if Sync.resetButton then
-        Sync.resetButton:SetText(text or "LEAVE + REGROUP")
+        Sync.resetButton:SetText(text or "SAVE + DISBAND")
     end
 end
 
@@ -1678,8 +1678,6 @@ function Sync.BeginRaidReset()
     if Sync.raidReset then
         if Sync.raidReset.stage == "leader_confirm" then
             Sync.LeaderRemoveRemainingAndLeave()
-        elseif Sync.raidReset.stage == "waiting_leave" then
-            Sync.TryCoordinatedLeave()
         else
             LocalWarning("A leave/regroup sequence is already active.")
         end
@@ -1719,6 +1717,8 @@ function Sync.BeginRaidReset()
         nextAt = now,
         inviteIndex = 1,
         inviteTimes = {},
+        inviteAttempts = {},
+        inviteRequests = {},
         ineligible = {},
         addonReady = {},
     }
@@ -1727,10 +1727,9 @@ function Sync.BeginRaidReset()
         table.insert(Sync.raidReset.names, member.name)
     end
     db.autoReinvitePending = true
-    Sync.SendGroupAddonMessage("R|S|" .. token .. "|5")
-    Sync.UpdateResetButton("LEAVING IN 5...")
+    Sync.UpdateResetButton("DISBAND IN 5...")
     Sync.ResetGroupMessage(
-        "Coordinated regroup in 5 seconds. Manastormer users leave automatically. If anyone lacks the addon, the leader will click Remove Remaining + Leave, then the saved group will be reinvited."
+        "Saved-roster disband in 5 seconds. When the button says DISBAND NOW, the leader must click it to use the native ElvUI-style disband, then the eligible roster will be reinvited."
     )
 end
 
@@ -1785,6 +1784,13 @@ function Sync.InviteResetMember(name)
         return pcall(C_PartyInfo.InviteUnit, name)
     end
     return false
+end
+
+function Sync.RemoveGroupMember(name)
+    if not name or IsSelf(name) or not IsGrouped(name) then return false end
+    if InCombatLockdown and InCombatLockdown() then return false end
+    if type(UninviteUnit) ~= "function" then return false end
+    return pcall(UninviteUnit, name)
 end
 
 function Sync.FinishRaidReset(message)
@@ -1853,27 +1859,38 @@ function Sync.LeaderRemoveRemainingAndLeave()
         return false
     end
 
-    local remaining = {}
-    local _, member
-    for _, member in ipairs(GetRoster()) do
-        if member.name and not IsSelf(member.name) then
-            table.insert(remaining, member.name)
+    local numRaid = GetNumRaidMembers()
+    if numRaid > 0 then
+        local index
+        for index = 1, numRaid do
+            local name, _, _, _, _, _, _, online = GetRaidRosterInfo(index)
+            if name and online and not IsSelf(name) and type(UninviteUnit) == "function" then
+                pcall(UninviteUnit, name)
+            end
         end
-    end
-    local _, name
-    for _, name in ipairs(remaining) do
-        if type(UninviteUnit) == "function" then pcall(UninviteUnit, name) end
+    else
+        local maximum = tonumber(MAX_PARTY_MEMBERS) or 4
+        local index
+        for index = maximum, 1, -1 do
+            local unit = "party" .. tostring(index)
+            if GetPartyMember(index) then
+                local name = UnitName(unit)
+                if name and type(UninviteUnit) == "function" then
+                    pcall(UninviteUnit, name)
+                end
+            end
+        end
     end
     if type(LeaveParty) == "function" then pcall(LeaveParty) end
     if type(C_Manastorm) == "table" and type(C_Manastorm.Leave) == "function" then
         pcall(C_Manastorm.Leave)
     end
-
+    reset.sawSolo = true
     reset.leaveCalledAt = GetTime()
     reset.stage = "waiting_exit"
     reset.nextAt = GetTime() + 1
-    Sync.UpdateResetButton("REMOVING GROUP + LEAVING...")
-    LocalWarning("Remaining players removed. Leaving the Manastorm and preparing saved-roster reinvites.")
+    Sync.UpdateResetButton("DISBANDING + LEAVING...")
+    LocalWarning("ElvUI-style group disband sent. Leaving the Manastorm and preparing the saved roster.")
     return true
 end
 
@@ -1883,7 +1900,13 @@ function Sync.HandleResetWhisper(message, author)
     if Trim(message):lower() ~= "inv" then return false end
     local savedName = Sync.ResetSnapshotName(reset, author)
     if not savedName or IsBlocked60(savedName) or reset.ineligible[NameKey(savedName)] then return false end
-    reset.inviteTimes[NameKey(savedName)] = 0
+    local key = NameKey(savedName)
+    reset.inviteRequests = reset.inviteRequests or {}
+    if reset.inviteRequests[key] and GetTime() - reset.inviteRequests[key] < 5 then return true end
+    reset.inviteRequests[key] = GetTime()
+    reset.inviteTimes[key] = 0
+    reset.inviteAttempts = reset.inviteAttempts or {}
+    reset.inviteAttempts[key] = 0
     reset.nextAt = 0
     return true
 end
@@ -1916,18 +1939,11 @@ function Sync.ProcessRaidReset()
 
     if reset.stage == "countdown" then
         local remaining = math.max(0, math.ceil((reset.leaveAt or now) - now))
-        Sync.UpdateResetButton("LEAVING IN " .. tostring(remaining) .. "...")
+        Sync.UpdateResetButton("DISBAND IN " .. tostring(remaining) .. "...")
         if now >= (reset.leaveAt or 0) then
-            if reset.isLeader and Sync.UnconfirmedResetMembers(reset) > 0 then
-                reset.stage = "leader_confirm"
-                Sync.UpdateResetButton("REMOVE REMAINING + LEAVE")
-                LocalWarning(
-                    tostring(Sync.UnconfirmedResetMembers(reset))
-                        .. " saved player(s) did not answer the addon sync. Click Remove Remaining + Leave."
-                )
-            else
-                Sync.TryCoordinatedLeave()
-            end
+            reset.stage = "leader_confirm"
+            Sync.UpdateResetButton("DISBAND NOW")
+            LocalWarning("Roster saved. Click DISBAND NOW to run the native ElvUI-style disband.")
         end
         return
     end
@@ -1935,8 +1951,8 @@ function Sync.ProcessRaidReset()
     if reset.stage == "waiting_combat_confirm" then
         if not (InCombatLockdown and InCombatLockdown()) then
             reset.stage = "leader_confirm"
-            Sync.UpdateResetButton("REMOVE REMAINING + LEAVE")
-            LocalWarning("Combat ended. Click Remove Remaining + Leave to finish the regroup.")
+            Sync.UpdateResetButton("DISBAND NOW")
+            LocalWarning("Combat ended. Click DISBAND NOW to finish the regroup.")
         end
         return
     end
@@ -1970,10 +1986,13 @@ function Sync.ProcessRaidReset()
             Sync.FinishRaidReset("Rejoined the saved Manastorm group.")
             return
         end
-        if not InRaid() and not InParty() and now >= (reset.nextAt or 0) then
+        if not InRaid() and not InParty() and not reset.requestSent
+            and now >= (reset.nextAt or 0)
+        then
             SendChatMessage("inv", "WHISPER", nil, reset.leader)
-            reset.nextAt = now + 6
-            Sync.UpdateResetButton("REQUESTING REINVITE...")
+            reset.requestSent = true
+            reset.nextAt = now + 10
+            Sync.UpdateResetButton("REINVITE REQUEST SENT")
         end
         return
     end
@@ -1997,10 +2016,13 @@ function Sync.ProcessRaidReset()
                 and not reset.ineligible[NameKey(name)]
             then
                 local key = NameKey(name)
+                reset.inviteAttempts = reset.inviteAttempts or {}
+                local attempts = reset.inviteAttempts[key] or 0
                 local lastInvite = reset.inviteTimes[key] or 0
-                if now - lastInvite >= 6 then
+                if attempts < 1 and now - lastInvite >= 6 then
                     Sync.InviteResetMember(name)
                     reset.inviteTimes[key] = now
+                    reset.inviteAttempts[key] = attempts + 1
                     reset.nextAt = now + 0.8
                     Sync.UpdateResetButton("REINVITING " .. tostring(name) .. "...")
                     return
@@ -2258,9 +2280,9 @@ UpdateKickButton = function()
     local kickName
     local name
     for name in pairs(pendingLevel60Kicks) do
-        local liveLevel = LiveGroupedLevel(name)
-        if liveLevel and liveLevel >= 60 then
-            kickName = name
+        local liveLevel, liveName = LiveGroupedLevel(name)
+        if liveLevel and liveLevel >= 60 and liveName and not IsSelf(liveName) then
+            kickName = liveName
             break
         else
             pendingLevel60Kicks[name] = nil
@@ -2287,8 +2309,6 @@ UpdateKickButton = function()
     else
         kick60Button:SetText("KICK LEVEL 60: " .. ShortName(kickName))
         kick60Button:Enable()
-        kick60Button:SetAttribute("type", "macro")
-        kick60Button:SetAttribute("macrotext", "/uninvite " .. kickName)
         kick60Button.targetName = kickName
     end
     PositionKickButton()
@@ -2322,8 +2342,6 @@ UpdateKick59Button = function()
 
     kick59Button:SetText("KICK LEVEL 59: " .. ShortName(kickName))
     kick59Button:Enable()
-    kick59Button:SetAttribute("type", "macro")
-    kick59Button:SetAttribute("macrotext", "/uninvite " .. kickName)
     kick59Button.targetName = kickName
     PositionKickButton()
     kick59Button:Show()
@@ -4612,9 +4630,9 @@ function Sync.CreatePanel()
     )
     TrackFullUI(level59Hover)
 
-    Sync.resetButton = MakeButton(panel, "LEAVE + REGROUP", 274, function()
+    Sync.resetButton = MakeButton(panel, "SAVE + DISBAND", 274, function()
         Sync.BeginRaidReset()
-    end, "Leave and Regroup", "Snapshots the eligible roster and starts a five-second coordinated exit. If everyone has Manastormer, leaving is automatic. If anyone does not, the leader must click this button again when it says Remove Remaining + Leave. Saved level-60 and blocked players are never reinvited.", "red")
+    end, "Save and ElvUI-Style Disband", "Snapshots the eligible roster and starts a five-second warning. When the button changes to DISBAND NOW, click it to run the same native removal sequence used by ElvUI, leave the Manastorm, and reinvite each eligible saved player once. Level-60 and blocked players are excluded.", "red")
     Sync.resetButton:SetPoint("TOPLEFT", 10, -319)
 
     local clearButton = MakeButton(panel, "Clear Roles", 110, function()
@@ -4660,9 +4678,9 @@ function Sync.CreatePanel()
     help:SetText("MANASTORMER v" .. tostring(addonVersion) .. "  |  /msm")
     TrackFullUI(help)
 
-    -- This secure action must not be a child of the main panel. Ascension would
-    -- otherwise protect the panel itself and block compact view during combat.
-    kick60Button = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+    -- Keep removal buttons detached from the main panel so opening and compact
+    -- view remain safe in combat. Removal itself runs only from a real click.
+    kick60Button = CreateFrame("Button", nil, UIParent)
     -- In full view this detached button overlaps the panel's rectangle. Keep it
     -- above the mouse-enabled panel or the panel intercepts an otherwise visible
     -- secure click. Compact view placed it below the panel and hid this bug.
@@ -4677,8 +4695,16 @@ function Sync.CreatePanel()
         "Ascension can protect raid removal from automatic addon actions. Click this fallback immediately if the automatic kick did not complete."
     )
     kick60Button:SetText("KICK LEVEL 60")
-    kick60Button:SetScript("PostClick", function(self)
+    kick60Button:SetScript("OnClick", function(self)
         local removedName = self.targetName
+        if InCombatLockdown and InCombatLockdown() then
+            LocalWarning("Group removal is protected until combat ends.")
+            return
+        end
+        if not Sync.RemoveGroupMember(removedName) then
+            LocalWarning("Could not remove " .. ShortName(removedName) .. ". You must be the group leader or raid assistant.")
+            return
+        end
         Schedule(0.1, function()
             Sync.SendFarewellWhisper(removedName, 60)
         end)
@@ -4690,7 +4716,7 @@ function Sync.CreatePanel()
     end)
     kick60Button:Hide()
 
-    kick59Button = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+    kick59Button = CreateFrame("Button", nil, UIParent)
     kick59Button:SetFrameStrata(panel:GetFrameStrata() or "MEDIUM")
     kick59Button:SetFrameLevel(panel:GetFrameLevel() + 6)
     kick59Button:SetWidth(390)
@@ -4702,8 +4728,16 @@ function Sync.CreatePanel()
         "Removes the displayed live level-59 player from the group. The button rechecks the current roster level before it appears."
     )
     kick59Button:SetText("KICK LEVEL 59")
-    kick59Button:SetScript("PostClick", function(self)
+    kick59Button:SetScript("OnClick", function(self)
         local removedName = self.targetName
+        if InCombatLockdown and InCombatLockdown() then
+            LocalWarning("Group removal is protected until combat ends.")
+            return
+        end
+        if not Sync.RemoveGroupMember(removedName) then
+            LocalWarning("Could not remove " .. ShortName(removedName) .. ". You must be the group leader or raid assistant.")
+            return
+        end
         Schedule(0.1, function()
             Sync.SendFarewellWhisper(removedName, 59)
         end)
@@ -5092,7 +5126,7 @@ SlashCmdList["MANASTORMER"] = function(message)
         Print("/msm listen, /msm pause, /msm clear")
         Print("/msm minimap - show or hide the minimap button")
         Print("/msm whispers - open or close the recruitment whisper list")
-        Print("/msm resetraid - coordinated Manastorm leave and saved-roster regroup")
+        Print("/msm resetraid - save the roster, run an ElvUI-style disband, and regroup")
         Print("/msm api - show Ascension Manastorm API/frame diagnostics")
         Print("/msm tank, healer, dps, aura - toggle role on your target")
         Print("/msm clearrole - clear your target's Mana Storm roles")

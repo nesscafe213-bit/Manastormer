@@ -1675,20 +1675,20 @@ function Sync.SaveRaidResetSnapshot()
 end
 
 function Sync.BeginRaidReset()
-    local groupLeader = (InRaid() and IsRaidLeader())
-        or (InParty() and UnitIsPartyLeader("player"))
-    if not groupLeader then
-        LocalWarning("Only the current raid or party leader can start Leave + Regroup.")
-        return
-    end
     if Sync.raidReset then
-        if Sync.raidReset.stage == "countdown"
-            or Sync.raidReset.stage == "waiting_leave"
-        then
+        if Sync.raidReset.stage == "leader_confirm" then
+            Sync.LeaderRemoveRemainingAndLeave()
+        elseif Sync.raidReset.stage == "waiting_leave" then
             Sync.TryCoordinatedLeave()
         else
             LocalWarning("A leave/regroup sequence is already active.")
         end
+        return
+    end
+    local groupLeader = (InRaid() and IsRaidLeader())
+        or (InParty() and UnitIsPartyLeader("player"))
+    if not groupLeader then
+        LocalWarning("Only the current raid or party leader can start Leave + Regroup.")
         return
     end
     if not IsInsideManastorm() then
@@ -1715,9 +1715,6 @@ function Sync.BeginRaidReset()
         isLeader = true,
         eligible = true,
         leaveAt = now + 5,
-        -- Send the legacy WeakAura signal early enough that its three-second
-        -- timer completes before our API fallback, avoiding two same-frame calls.
-        announceAt = now + 1.5,
         expiresAt = now + 180,
         nextAt = now,
         inviteIndex = 1,
@@ -1733,7 +1730,7 @@ function Sync.BeginRaidReset()
     Sync.SendGroupAddonMessage("R|S|" .. token .. "|5")
     Sync.UpdateResetButton("LEAVING IN 5...")
     Sync.ResetGroupMessage(
-        "Coordinated regroup in 5 seconds. Manastormer users will leave and rejoin automatically. Everyone else: leave the Manastorm and whisper 'inv' to the raid leader."
+        "Coordinated regroup in 5 seconds. Manastormer users leave automatically. If anyone lacks the addon, the leader will click Remove Remaining + Leave, then the saved group will be reinvited."
     )
 end
 
@@ -1834,6 +1831,52 @@ function Sync.TryCoordinatedLeave()
     return ok
 end
 
+function Sync.UnconfirmedResetMembers(reset)
+    local count = 0
+    if not reset or not reset.names then return count end
+    local _, name
+    for _, name in ipairs(reset.names) do
+        if not reset.addonReady[NameKey(name)] and not IsBlocked60(name) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+function Sync.LeaderRemoveRemainingAndLeave()
+    local reset = Sync.raidReset
+    if not reset or not reset.isLeader or reset.stage ~= "leader_confirm" then return false end
+    if InCombatLockdown and InCombatLockdown() then
+        reset.stage = "waiting_combat_confirm"
+        Sync.UpdateResetButton("WAITING FOR COMBAT...")
+        LocalWarning("Removal is protected in combat. Click Remove Remaining + Leave when combat ends.")
+        return false
+    end
+
+    local remaining = {}
+    local _, member
+    for _, member in ipairs(GetRoster()) do
+        if member.name and not IsSelf(member.name) then
+            table.insert(remaining, member.name)
+        end
+    end
+    local _, name
+    for _, name in ipairs(remaining) do
+        if type(UninviteUnit) == "function" then pcall(UninviteUnit, name) end
+    end
+    if type(LeaveParty) == "function" then pcall(LeaveParty) end
+    if type(C_Manastorm) == "table" and type(C_Manastorm.Leave) == "function" then
+        pcall(C_Manastorm.Leave)
+    end
+
+    reset.leaveCalledAt = GetTime()
+    reset.stage = "waiting_exit"
+    reset.nextAt = GetTime() + 1
+    Sync.UpdateResetButton("REMOVING GROUP + LEAVING...")
+    LocalWarning("Remaining players removed. Leaving the Manastorm and preparing saved-roster reinvites.")
+    return true
+end
+
 function Sync.HandleResetWhisper(message, author)
     local reset = Sync.raidReset
     if not reset or not reset.isLeader or IsInsideManastorm() then return false end
@@ -1872,13 +1915,29 @@ function Sync.ProcessRaidReset()
     end
 
     if reset.stage == "countdown" then
-        if reset.isLeader and not reset.leaveSignalSent and now >= (reset.announceAt or 0) then
-            reset.leaveSignalSent = true
-            SendChatMessage("LEAVE", InRaid() and "RAID" or "PARTY")
-        end
         local remaining = math.max(0, math.ceil((reset.leaveAt or now) - now))
         Sync.UpdateResetButton("LEAVING IN " .. tostring(remaining) .. "...")
-        if now >= (reset.leaveAt or 0) then Sync.TryCoordinatedLeave() end
+        if now >= (reset.leaveAt or 0) then
+            if reset.isLeader and Sync.UnconfirmedResetMembers(reset) > 0 then
+                reset.stage = "leader_confirm"
+                Sync.UpdateResetButton("REMOVE REMAINING + LEAVE")
+                LocalWarning(
+                    tostring(Sync.UnconfirmedResetMembers(reset))
+                        .. " saved player(s) did not answer the addon sync. Click Remove Remaining + Leave."
+                )
+            else
+                Sync.TryCoordinatedLeave()
+            end
+        end
+        return
+    end
+
+    if reset.stage == "waiting_combat_confirm" then
+        if not (InCombatLockdown and InCombatLockdown()) then
+            reset.stage = "leader_confirm"
+            Sync.UpdateResetButton("REMOVE REMAINING + LEAVE")
+            LocalWarning("Combat ended. Click Remove Remaining + Leave to finish the regroup.")
+        end
         return
     end
 
@@ -4555,7 +4614,7 @@ function Sync.CreatePanel()
 
     Sync.resetButton = MakeButton(panel, "LEAVE + REGROUP", 274, function()
         Sync.BeginRaidReset()
-    end, "Leave and Regroup", "Inside a Manastorm, snapshots every eligible raid member and starts a five-second coordinated exit. Manastormer users leave, request the saved leader, and accept that trusted reinvite automatically. Level 60 and blocked players are never reinvited.", "red")
+    end, "Leave and Regroup", "Snapshots the eligible roster and starts a five-second coordinated exit. If everyone has Manastormer, leaving is automatic. If anyone does not, the leader must click this button again when it says Remove Remaining + Leave. Saved level-60 and blocked players are never reinvited.", "red")
     Sync.resetButton:SetPoint("TOPLEFT", 10, -319)
 
     local clearButton = MakeButton(panel, "Clear Roles", 110, function()

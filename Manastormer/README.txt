@@ -1,4 +1,4 @@
-MANASTORMER 2.8.30
+MANASTORMER 2.8.31
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,11 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Outdated-version alerts now include the GitHub latest-release link. When the
+  group leader detects an older Manastormer user, that player receives one
+  private update-link reminder, limited to once every ten minutes.
+- LEAVE + REGROUP now works for a normal Manastorm party when started by the
+  current party leader, as well as for a raid started by its raid leader.
 - Fixes the level-59 and level-60 secure kick controls in full-size view. The
   detached buttons now sit above the mouse-enabled main panel, so their visible
   secure click is no longer intercepted. Compact-view behaviour is unchanged.

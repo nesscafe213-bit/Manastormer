@@ -97,6 +97,7 @@ local Sync = {
     lastRoleSyncRequest = 0,
     lastRoleSyncSnapshot = 0,
     addonUsers = {},
+    outdatedVersionNotices = {},
     raidReset = nil,
     resetButton = nil,
 }
@@ -710,9 +711,29 @@ local function ReceiveVersion(message, sender)
         return
     end
     local candidate = tostring(message):match("^V:([%d%.]+)$")
-    if not candidate or not IsNewerVersion(candidate, AddonVersion()) then
+    if not candidate then
         return
     end
+    local installedVersion = AddonVersion()
+    if IsNewerVersion(installedVersion, candidate) then
+        local isGroupLeader = (InRaid() and IsRaidLeader())
+            or (InParty() and UnitIsPartyLeader("player"))
+        local noticeKey = NameKey(sender) .. ":" .. candidate
+        local lastNotice = Sync.outdatedVersionNotices[noticeKey]
+        if isGroupLeader and (not lastNotice or GetTime() - lastNotice >= 600) then
+            Sync.outdatedVersionNotices[noticeKey] = GetTime()
+            SendChatMessage(
+                "Manastormer detected that your v" .. candidate
+                    .. " is outdated. Update here: "
+                    .. "https://github.com/nesscafe213-bit/Manastormer/releases/latest",
+                "WHISPER",
+                nil,
+                sender
+            )
+        end
+        return
+    end
+    if not IsNewerVersion(candidate, installedVersion) then return end
     if not newerVersionAvailable or IsNewerVersion(candidate, newerVersionAvailable) then
         newerVersionAvailable = candidate
     end
@@ -720,7 +741,8 @@ local function ReceiveVersion(message, sender)
         warnedVersion = newerVersionAvailable
         LocalWarning(
             "A newer Manastormer version is available: v"
-                .. newerVersionAvailable .. " (you have v" .. AddonVersion() .. ")."
+                .. newerVersionAvailable .. " (you have v" .. installedVersion .. "). Update: "
+                .. "https://github.com/nesscafe213-bit/Manastormer/releases/latest"
         )
     end
     Refresh()
@@ -1653,8 +1675,10 @@ function Sync.SaveRaidResetSnapshot()
 end
 
 function Sync.BeginRaidReset()
-    if not InRaid() or not IsRaidLeader() then
-        LocalWarning("Only the raid leader can start Leave + Regroup.")
+    local groupLeader = (InRaid() and IsRaidLeader())
+        or (InParty() and UnitIsPartyLeader("player"))
+    if not groupLeader then
+        LocalWarning("Only the current raid or party leader can start Leave + Regroup.")
         return
     end
     if Sync.raidReset then
@@ -2512,7 +2536,8 @@ Refresh = function()
         if newerVersionAvailable then
             table.insert(
                 compactLines,
-                "|cffffcc33New Manastormer v" .. newerVersionAvailable .. " available|r"
+                "|cffffcc33New Manastormer v" .. newerVersionAvailable
+                    .. " available - link in chat|r"
             )
         end
 

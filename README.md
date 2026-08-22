@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.32**
+Current release: **v2.8.34**
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.32.zip`.
+2. Download `Manastormer-2.8.34.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -26,22 +26,19 @@ backs up the existing addon, installs the update and verifies the version.
 
 ## Highlights
 
-- Mixed-addon regrouping: Manastormer users leave automatically; when saved
-  members do not answer the addon sync, the leader receives a protected
-  **Remove Remaining + Leave** click that removes them before leaving and then
-  restores the eligible saved roster with paced reinvites.
+- **Save + Disband** now uses the same native group-removal sequence as ElvUI.
+  It snapshots the eligible roster, gives a five-second warning, then waits for
+  the required **Disband Now** click before removing the party/raid and leaving.
+- Level-59 and level-60 kick buttons now call Ascension's live group-removal
+  API directly from the click and target the current roster name.
+- Regrouping sends only one automatic invite and one addon reinvite request per
+  player instead of repeating every six seconds.
 - Outdated-version warnings include the GitHub latest-release link, and the
   group leader privately sends that link to detected older users at most once
   every ten minutes.
 - Leave + Regroup now supports party-led Manastorm groups as well as raids.
 - Fixes the visible level-59 and level-60 secure kick buttons in full-size view
   by placing them above the mouse-enabled main panel. Compact view is unchanged.
-- Coordinated **Leave + Regroup** uses Ascension's native Manastorm API: the
-  leader snapshots the eligible roster, gives a five-second warning, and all
-  participating Manastormer users leave together. Outside, members request and
-  safely auto-accept only the saved leader's invitation while reinvites are
-  paced and the party converts back to a raid. Level-60 and blocked players are
-  never reinvited; non-addon users receive simple manual instructions.
 - Removes the old protected `/uninvite` macro and detached secure disband button.
 - Level-and-role reports now use normal raid chat rather than Raid Warning.
 - The combat-safe Enter Manastorm control now stays aligned beside Ready Check

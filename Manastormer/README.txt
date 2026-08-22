@@ -1,4 +1,4 @@
-MANASTORMER 2.8.31
+MANASTORMER 2.8.32
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,6 +13,11 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
+- Mixed-addon regroup support: members running Manastormer still leave
+  automatically after five seconds. If any saved player does not answer the
+  addon sync, the leader is given a protected REMOVE REMAINING + LEAVE click.
+  It removes remaining non-addon players, exits the leader, and then reinvites
+  the entire eligible saved roster. The confirmation waits until combat ends.
 - Outdated-version alerts now include the GitHub latest-release link. When the
   group leader detects an older Manastormer user, that player receives one
   private update-link reminder, limited to once every ten minutes.

@@ -1,4 +1,4 @@
-MANASTORMER 2.8.32
+MANASTORMER 2.8.34
 Project Ascension flexible Manastorm raid helper
 
 INSTALL
@@ -13,11 +13,14 @@ OPEN THE ADDON
 /manastormer
 
 MAIN FEATURES
-- Mixed-addon regroup support: members running Manastormer still leave
-  automatically after five seconds. If any saved player does not answer the
-  addon sync, the leader is given a protected REMOVE REMAINING + LEAVE click.
-  It removes remaining non-addon players, exits the leader, and then reinvites
-  the entire eligible saved roster. The confirmation waits until combat ends.
+- Replaces coordinated per-addon leaving with ElvUI's proven native disband
+  sequence. The first click snapshots the eligible roster and starts a five-
+  second warning; the required DISBAND NOW click removes raid/party members,
+  leaves the group and Manastorm, then starts the one-invite regroup.
+- Level-59 and level-60 kick buttons now call Ascension's live group-removal
+  API directly from the player's click and use the current roster name.
+- Regroup invitations no longer loop every six seconds. Each saved player gets
+  one automatic invite and addon members send at most one reinvite request.
 - Outdated-version alerts now include the GitHub latest-release link. When the
   group leader detects an older Manastormer user, that player receives one
   private update-link reminder, limited to once every ten minutes.
@@ -26,12 +29,6 @@ MAIN FEATURES
 - Fixes the level-59 and level-60 secure kick controls in full-size view. The
   detached buttons now sit above the mouse-enabled main panel, so their visible
   secure click is no longer intercepted. Compact-view behaviour is unchanged.
-- Adds coordinated LEAVE + REGROUP for Ascension Manastorms. The raid leader
-  snapshots all eligible players, gives a five-second warning, and synchronises
-  C_Manastorm.Leave across Manastormer users. Outside, members whisper the saved
-  leader, automatically accept only that trusted leader's invitation, and the
-  leader paces reinvites before converting back to a raid. Level-60 and blocked
-  players are excluded. Players without the addon receive manual instructions.
 - Sends the player level-and-role report to normal raid chat instead of Raid
   Warning, keeping the centre of the screen clear.
 - Keeps the detached secure Enter Manastorm button visually aligned with the

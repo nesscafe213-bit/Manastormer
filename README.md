@@ -2,13 +2,13 @@
 
 Manastormer is a flexible Project Ascension raid-control addon for organised Manastorm levelling groups.
 
-Current release: **v2.8.31**
+Current release: **v2.8.32**
 Author: **Nesscafe**
 
 ## Download and installation
 
 1. Open the latest entry on the repository's **Releases** page.
-2. Download `Manastormer-2.8.31.zip`.
+2. Download `Manastormer-2.8.32.zip`.
 3. Extract the `Manastormer` folder into your Ascension client's `Interface\AddOns` folder.
 4. Restart Ascension or type `/reload` in game.
 5. Type `/msm` to open the addon.
@@ -26,6 +26,10 @@ backs up the existing addon, installs the update and verifies the version.
 
 ## Highlights
 
+- Mixed-addon regrouping: Manastormer users leave automatically; when saved
+  members do not answer the addon sync, the leader receives a protected
+  **Remove Remaining + Leave** click that removes them before leaving and then
+  restores the eligible saved roster with paced reinvites.
 - Outdated-version warnings include the GitHub latest-release link, and the
   group leader privately sends that link to detected older users at most once
   every ten minutes.
